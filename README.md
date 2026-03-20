@@ -23,9 +23,16 @@ Open the URL shown in the terminal (usually `http://localhost:5173`).
 
 ### 1. Git (this folder as repo root)
 
+If you haven’t committed yet, set your identity once (or use `git config` in this repo only):
+
+```bash
+git config user.name "Your Name"
+git config user.email "you@example.com"
+```
+
 ```bash
 cd ambient-cfo
-git init
+git init   # skip if `.git` already exists
 git add .
 git commit -m "Initial commit"
 ```
