@@ -57,6 +57,8 @@ If your Git repo root is a parent folder (e.g. `prototyping`), set **Root Direct
 
 [`vercel.json`](vercel.json) rewrites all routes to `index.html` for client-side routing.
 
+**If the build log shows an old commit** (e.g. not the latest on `main`): in Vercel, **Redeploy** on an old deployment re-runs **that same commit**. Open **Deployments**, select the deployment that matches the newest GitHub commit, or push any new commit to `main` so a fresh deployment is created.
+
 ### Local build check
 
 ```bash
