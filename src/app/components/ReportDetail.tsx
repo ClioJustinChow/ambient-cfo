@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowLeft, Download, Filter, Printer, Calendar } from 'lucide-react';
 import { getReportTableRows } from '../data/reportDocumentSeed';
+import { FIRM_NAME } from '../data/prototypePersona';
 import { ReportDocumentTable } from './ReportDocumentTable';
 
 interface ReportDetailProps {
@@ -51,7 +52,7 @@ export const ReportDetail: React.FC<ReportDetailProps> = ({ reportName, onBack }
       <div className="bg-white border border-gray-200 rounded-[12px] shadow-sm overflow-hidden">
         <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
            <div>
-             <h2 className="text-lg font-bold text-gray-900">Clio Accounting Demo Firm</h2>
+             <h2 className="text-lg font-bold text-gray-900">{FIRM_NAME}</h2>
            </div>
            <div className="text-right">
              <p className="text-sm font-medium text-gray-900">Basis: Accrual</p>

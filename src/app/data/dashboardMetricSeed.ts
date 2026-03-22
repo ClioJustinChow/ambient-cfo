@@ -33,9 +33,9 @@ export const collectionTrendSeries = [
 ];
 
 export const partnerRealizationRows = [
+  { partner: 'R. Mercer', realization: 93, target: 90 },
   { partner: 'A. Chen', realization: 94, target: 90 },
   { partner: 'M. Ortiz', realization: 88, target: 88 },
   { partner: 'S. Patel', realization: 91, target: 90 },
   { partner: 'J. Kim', realization: 85, target: 87 },
-  { partner: 'R. Brooks', realization: 96, target: 90 },
 ];

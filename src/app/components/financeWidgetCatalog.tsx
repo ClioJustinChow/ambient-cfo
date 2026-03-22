@@ -16,6 +16,7 @@ import {
   Users,
   LineChart as LucideLineChart,
   Gauge,
+  Cpu,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -52,9 +53,17 @@ import {
   collectionTrendSeries,
   partnerRealizationRows,
 } from '../data/dashboardMetricSeed';
+import { DIGITAL_TWIN_CATALOG_DESC } from '../data/prototypePersona';
+import { DigitalTwinWidget, type DigitalTwinScenarioId } from './DigitalTwinWidget';
+import { SuggestedModellingWidget, type ModellingWidgetUiBridge } from './SuggestedModellingWidget';
+
+export type { ModellingWidgetUiBridge } from './SuggestedModellingWidget';
 
 /** Canvas / page width: compact = half row on md+ grid; expanded = full row width */
 export type WidgetLayoutSize = 'compact' | 'expanded';
+
+/** Main Finances grid column count on md+ breakpoints */
+export type MainGridColumns = 2 | 3;
 
 /** Embedded report widget display mode */
 export type ReportWidgetView = 'full' | 'chart_compact' | 'summary';
@@ -99,6 +108,20 @@ export const WIDGET_CATALOG = [
   { id: 'cash_flow', title: 'Cash Flow', category: 'Charts', icon: BarChart2, desc: 'Operating cash flow vs target' },
   { id: 'ar_aging', title: 'A/R Aging', category: 'Graphs', icon: PieChart, desc: 'Accounts receivable aging buckets' },
   { id: 'ambient_cfo', title: "This Week's Briefing", category: 'AI', icon: Sparkles, desc: 'Live automated financial insights' },
+  {
+    id: 'digital_twin',
+    title: 'Digital Twin',
+    category: 'AI',
+    icon: Cpu,
+    desc: DIGITAL_TWIN_CATALOG_DESC,
+  },
+  {
+    id: 'suggested_modelling',
+    title: 'Suggested Modelling',
+    category: 'Modelling',
+    icon: Sparkles,
+    desc: 'Scenario models, preview overlay on charts, and add to Financial Goals',
+  },
   { id: 'expense_rep', title: 'Expense Breakdown', category: 'Reports', icon: FileText, desc: 'Monthly expenses by category' },
   { id: 'rev_target', title: 'Revenue Target', category: 'Reports', icon: FileText, desc: 'Progress towards quarterly goals' },
   {
@@ -162,14 +185,28 @@ export const WIDGET_CATALOG = [
 export type FinanceCatalogWidgetId = (typeof WIDGET_CATALOG)[number]['id'];
 
 export function defaultLayoutSizeForWidgetId(widgetId: string): WidgetLayoutSize {
-  if (widgetId === 'ambient_cfo' || widgetId === 'financial_goals' || widgetId === EMBEDDED_REPORT_WIDGET_ID) {
+  if (
+    widgetId === 'ambient_cfo' ||
+    widgetId === 'digital_twin' ||
+    widgetId === 'financial_goals' ||
+    widgetId === EMBEDDED_REPORT_WIDGET_ID ||
+    widgetId === 'suggested_modelling'
+  ) {
     return 'expanded';
   }
   return 'compact';
 }
 
-export function layoutSizeToGridClass(layoutSize: WidgetLayoutSize) {
-  return layoutSize === 'expanded' ? 'md:col-span-2' : '';
+export function mainGridClass(columns: MainGridColumns = 2): string {
+  return columns === 3
+    ? 'grid grid-cols-1 md:grid-cols-3 gap-6 auto-rows-max w-full'
+    : 'grid grid-cols-1 md:grid-cols-2 gap-6 auto-rows-max w-full';
+}
+
+/** Span class for expanded widgets so they fill the full main row for 2- or 3-column grids */
+export function layoutSizeToGridClass(layoutSize: WidgetLayoutSize, columns: MainGridColumns = 2): string {
+  if (layoutSize !== 'expanded') return '';
+  return columns === 3 ? 'md:col-span-3' : 'md:col-span-2';
 }
 
 export function hydratePlacedWidgets(
@@ -216,6 +253,19 @@ export function financePageWidgetsFromHydrated(hydrated: HydratedPlacedWidget[])
       ? { reportName: w.reportName, reportView: normalizeReportView(w.reportView) }
       : {}),
   }));
+}
+
+/** Sidebar rail widgets are always compact width (no full-row span). */
+export function financeSidebarWidgetsForPersist(widgets: FinancePageWidget[]): FinancePageWidget[] {
+  return widgets.map((w) => ({ ...w, layoutSize: 'compact' as const }));
+}
+
+/** Hydrated sidebar list for canvas preview — force compact display. */
+export function hydrateSidebarPlacedWidgets(
+  placed: FinancePageWidget[],
+  reportLibrary?: readonly ReportLibraryEntry[],
+): HydratedPlacedWidget[] {
+  return hydratePlacedWidgets(placed, reportLibrary).map((w) => ({ ...w, layoutSize: 'compact' as const }));
 }
 
 const REPORT_VIEW_OPTIONS: { id: ReportWidgetView; label: string }[] = [
@@ -266,6 +316,9 @@ type FinanceWidgetContentProps = {
   /** Embedded report widget only */
   reportName?: string;
   reportView?: ReportWidgetView;
+  onDigitalTwinScenario?: (id: DigitalTwinScenarioId) => void;
+  /** suggested_modelling — preview/goals/create; omit to show placeholder */
+  modellingUi?: ModellingWidgetUiBridge | null;
 };
 
 export function FinanceWidgetContent({
@@ -277,11 +330,14 @@ export function FinanceWidgetContent({
   executedBriefingInsightIds,
   reportName,
   reportView: reportViewProp = 'chart_compact',
+  onDigitalTwinScenario,
+  modellingUi,
 }: FinanceWidgetContentProps) {
   const reportView = normalizeReportView(reportViewProp);
   const chartCtx = useStrategicDashboardCharts();
   const chartData: StrategicMonthRow[] = chartCtx?.displayStrategicData ?? (strategicData as StrategicMonthRow[]);
   const selectedModelId = chartCtx?.selectedModelId ?? null;
+  const peerBenchmarkEnabled = chartCtx?.peerBenchmarkEnabled ?? false;
   const briefingSnapshot = chartCtx?.briefingSnapshot ?? buildBriefingFinancialSnapshot([]);
 
   const runwaySeries = chartData.map((r) => ({
@@ -429,6 +485,22 @@ export function FinanceWidgetContent({
           executedInsightIds={executedBriefingInsightIds}
         />
       );
+    case 'digital_twin':
+      return (
+        <DigitalTwinWidget
+          displayStrategicData={chartData}
+          onExploreScenario={onDigitalTwinScenario}
+        />
+      );
+    case 'suggested_modelling':
+      if (!modellingUi) {
+        return (
+          <div className="text-xs text-gray-500 py-4 text-center border border-dashed border-gray-200 rounded-[8px]">
+            Modelling controls load on the live Finances page.
+          </div>
+        );
+      }
+      return <SuggestedModellingWidget bridge={modellingUi} />;
     case 'financial_goals':
       return (
         <div className="h-full w-full flex flex-col mt-1">
@@ -477,11 +549,18 @@ export function FinanceWidgetContent({
           </div>
         </div>
       );
-    case 'strat_cash':
+    case 'strat_cash': {
+      const showStratLegend = peerBenchmarkEnabled || Boolean(selectedModelId);
+      const cashTooltipLabel = (name: string) => {
+        if (name === 'cash') return 'Your firm';
+        if (name === 'altCash') return 'Scenario (Preview)';
+        if (name === 'peerCash') return 'Peer composite';
+        return name;
+      };
       return (
         <div className="w-full mt-2 h-[300px] min-h-[300px]">
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }} accessibilityLayer={false}>
+            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: showStratLegend ? 8 : 0 }} accessibilityLayer={false}>
               <defs key="defs">
                 <linearGradient id={`${gradientId}-cash`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#0069D1" stopOpacity={0.15} />
@@ -494,21 +573,64 @@ export function FinanceWidgetContent({
               <Tooltip
                 key="tooltip"
                 contentStyle={{ borderRadius: '8px', fontSize: '12px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                formatter={(value: number, name: string) => [`$${value.toLocaleString()}`, name === 'cash' ? 'Cash' : 'Modeled Cash']}
+                formatter={(value: number, name: string) => [`$${value.toLocaleString()}`, cashTooltipLabel(name)]}
               />
-              <Area key="area" type="monotone" dataKey="cash" stroke="#0069D1" strokeWidth={2.5} fillOpacity={1} fill={`url(#${gradientId}-cash)`} />
+              {showStratLegend && (
+                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} formatter={(value) => value} />
+              )}
+              <Area
+                key="area"
+                name="Your firm"
+                type="monotone"
+                dataKey="cash"
+                stroke="#0069D1"
+                strokeWidth={2.5}
+                fillOpacity={1}
+                fill={`url(#${gradientId}-cash)`}
+              />
               {selectedModelId && (
-                <Area key="areaAlt" type="monotone" dataKey="altCash" stroke="#8b5cf6" strokeWidth={2.5} strokeDasharray="5 5" fillOpacity={0} />
+                <Area
+                  key="areaAlt"
+                  name="Scenario (Preview)"
+                  type="monotone"
+                  dataKey="altCash"
+                  stroke="#8b5cf6"
+                  strokeWidth={2.5}
+                  strokeDasharray="5 5"
+                  fillOpacity={0}
+                />
+              )}
+              {peerBenchmarkEnabled && (
+                <Area
+                  key="areaPeer"
+                  name="Peer composite"
+                  type="monotone"
+                  dataKey="peerCash"
+                  stroke="#0d9488"
+                  strokeWidth={2}
+                  strokeDasharray="3 3"
+                  fillOpacity={0}
+                />
               )}
             </AreaChart>
           </ResponsiveContainer>
         </div>
       );
-    case 'strat_burn':
+    }
+    case 'strat_burn': {
+      const nBars = 1 + (selectedModelId ? 1 : 0) + (peerBenchmarkEnabled ? 1 : 0);
+      const barW = nBars >= 3 ? 10 : nBars === 2 ? 14 : 28;
+      const showBurnLegend = peerBenchmarkEnabled || Boolean(selectedModelId);
+      const burnTooltipLabel = (name: string) => {
+        if (name === 'burn') return 'Your firm';
+        if (name === 'altBurn') return 'Scenario (Preview)';
+        if (name === 'peerBurn') return 'Peer composite';
+        return name;
+      };
       return (
         <div className="w-full mt-2 h-[300px] min-h-[300px]">
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }} accessibilityLayer={false}>
+            <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: showBurnLegend ? 8 : 0 }} accessibilityLayer={false}>
               <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
               <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} dy={10} />
               <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`} dx={-10} width={50} />
@@ -516,35 +638,80 @@ export function FinanceWidgetContent({
                 key="tooltip"
                 cursor={{ fill: '#f9fafb' }}
                 contentStyle={{ borderRadius: '8px', fontSize: '12px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                formatter={(value: number, name: string) => [`$${value.toLocaleString()}`, name === 'burn' ? 'Burn' : 'Modeled Burn']}
+                formatter={(value: number, name: string) => [`$${value.toLocaleString()}`, burnTooltipLabel(name)]}
               />
-              <Bar key="bar" dataKey="burn" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={selectedModelId ? 15 : 30} />
-              {selectedModelId && <Bar key="barAlt" dataKey="altBurn" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={15} />}
+              {showBurnLegend && <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />}
+              <Bar name="Your firm" dataKey="burn" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={barW} />
+              {selectedModelId && (
+                <Bar name="Scenario (Preview)" dataKey="altBurn" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={barW} />
+              )}
+              {peerBenchmarkEnabled && (
+                <Bar name="Peer composite" dataKey="peerBurn" fill="#0d9488" radius={[4, 4, 0, 0]} barSize={barW} />
+              )}
             </BarChart>
           </ResponsiveContainer>
         </div>
       );
-    case 'strat_runway':
+    }
+    case 'strat_runway': {
+      const showRwLegend = peerBenchmarkEnabled || Boolean(selectedModelId);
+      const rwTooltipLabel = (name: string) => {
+        if (name === 'runway') return 'Your firm';
+        if (name === 'altRunway') return 'Scenario (Preview)';
+        if (name === 'peerRunway') return 'Peer composite';
+        return name;
+      };
       return (
         <div className="w-full mt-2 h-[300px] min-h-[300px]">
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }} accessibilityLayer={false}>
+            <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: showRwLegend ? 8 : 0 }} accessibilityLayer={false}>
               <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
               <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} dy={10} />
               <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} dx={-10} width={40} />
               <Tooltip
                 key="tooltip"
                 contentStyle={{ borderRadius: '8px', fontSize: '12px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                formatter={(value: number, name: string) => [`${value} months`, name === 'runway' ? 'Runway' : 'Modeled Runway']}
+                formatter={(value: number, name: string) => [`${value} months`, rwTooltipLabel(name)]}
               />
-              <Line key="line" type="monotone" dataKey="runway" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 6, fill: '#10b981' }} />
+              {showRwLegend && <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />}
+              <Line
+                name="Your firm"
+                type="monotone"
+                dataKey="runway"
+                stroke="#10b981"
+                strokeWidth={2.5}
+                dot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
+                activeDot={{ r: 6, fill: '#10b981' }}
+              />
               {selectedModelId && (
-                <Line key="lineAlt" type="monotone" dataKey="altRunway" stroke="#8b5cf6" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 6, fill: '#8b5cf6' }} />
+                <Line
+                  name="Scenario (Preview)"
+                  type="monotone"
+                  dataKey="altRunway"
+                  stroke="#8b5cf6"
+                  strokeWidth={2.5}
+                  strokeDasharray="5 5"
+                  dot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
+                  activeDot={{ r: 6, fill: '#8b5cf6' }}
+                />
+              )}
+              {peerBenchmarkEnabled && (
+                <Line
+                  name="Peer composite"
+                  type="monotone"
+                  dataKey="peerRunway"
+                  stroke="#0d9488"
+                  strokeWidth={2}
+                  strokeDasharray="2 4"
+                  dot={{ r: 3, strokeWidth: 2, fill: '#fff' }}
+                  activeDot={{ r: 5, fill: '#0d9488' }}
+                />
               )}
             </LineChart>
           </ResponsiveContainer>
         </div>
       );
+    }
     case EMBEDDED_REPORT_WIDGET_ID: {
       const rn = reportName?.trim() || 'Report';
       const rows = getReportTableRows(rn);
@@ -737,12 +904,22 @@ export const DEFAULT_NEW_PAGE_WIDGETS: FinancePageWidget[] = [
   { instanceId: 'w_ar', widgetId: 'ar_aging', layoutSize: 'compact' },
 ];
 
-/** Default layout for the built-in 2026 Strategic Roadmap */
+/** Default layout for the built-in 2026 Strategic Roadmap Finances page */
 export const DEFAULT_FP_DEFAULT_WIDGETS: FinancePageWidget[] = [
   { instanceId: 'w_brief', widgetId: 'ambient_cfo', layoutSize: 'expanded' },
   { instanceId: 'w_cash', widgetId: 'strat_cash', layoutSize: 'expanded' },
   { instanceId: 'w_burn', widgetId: 'strat_burn', layoutSize: 'expanded' },
   { instanceId: 'w_runway_s', widgetId: 'strat_runway', layoutSize: 'expanded' },
+];
+
+/** Default right-rail widgets for the built-in strategic roadmap page */
+export const DEFAULT_FP_DEFAULT_SIDEBAR_WIDGETS: FinancePageWidget[] = [
+  { instanceId: 'sb_modelling', widgetId: 'suggested_modelling', layoutSize: 'compact' },
+];
+
+/** Default sidebar when creating a new Finances page */
+export const DEFAULT_NEW_PAGE_SIDEBAR_WIDGETS: FinancePageWidget[] = [
+  { instanceId: 'sb_modelling', widgetId: 'suggested_modelling', layoutSize: 'compact' },
 ];
 
 type FinancePageWidgetGridProps = {
@@ -756,6 +933,9 @@ type FinancePageWidgetGridProps = {
   reportLibrary?: readonly ReportLibraryEntry[];
   /** Persist inline edits (e.g. report view mode) into saved page widgets */
   onUpdateWidget?: (instanceId: string, patch: Partial<FinancePageWidget>) => void;
+  onDigitalTwinScenario?: (id: DigitalTwinScenarioId) => void;
+  mainGridColumns?: MainGridColumns;
+  modellingUi?: ModellingWidgetUiBridge | null;
 };
 
 export function FinancePageWidgetGrid({
@@ -767,8 +947,12 @@ export function FinancePageWidgetGrid({
   executedBriefingInsightIds,
   reportLibrary,
   onUpdateWidget,
+  onDigitalTwinScenario,
+  mainGridColumns = 2,
+  modellingUi,
 }: FinancePageWidgetGridProps) {
   const hydrated = hydratePlacedWidgets(widgets, reportLibrary);
+  const gridCols = mainGridColumns;
 
   if (hydrated.length === 0) {
     return (
@@ -779,15 +963,26 @@ export function FinancePageWidgetGrid({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 auto-rows-max w-full">
+    <div className={mainGridClass(gridCols)}>
       {hydrated.map((widget) => (
         <div
           key={widget.instanceId}
-          className={`bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors relative overflow-hidden ${layoutSizeToGridClass(widget.layoutSize)}`}
+          className={`bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors relative overflow-hidden ${layoutSizeToGridClass(widget.layoutSize, gridCols)}`}
         >
-          {widget.id !== 'ambient_cfo' && (
+          {widget.id !== 'ambient_cfo' &&
+            widget.id !== 'suggested_modelling' &&
+            widget.id !== 'digital_twin' && (
             <div className="mb-4">
               <h3 className="text-base font-bold text-gray-900">{widget.title}</h3>
+              <p className="text-xs text-gray-500 mt-0.5">{widget.desc}</p>
+            </div>
+          )}
+          {widget.id === 'suggested_modelling' && (
+            <div className="mb-4">
+              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+                Modelling
+              </h3>
               <p className="text-xs text-gray-500 mt-0.5">{widget.desc}</p>
             </div>
           )}
@@ -808,6 +1003,98 @@ export function FinancePageWidgetGrid({
               executedBriefingInsightIds={executedBriefingInsightIds}
               reportName={widget.reportName}
               reportView={widget.reportView}
+              onDigitalTwinScenario={onDigitalTwinScenario}
+              modellingUi={widget.id === 'suggested_modelling' ? modellingUi : undefined}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type FinancePageSidebarWidgetStackProps = {
+  widgets: FinancePageWidget[];
+  onTakeAction?: (insightId: string) => void;
+  onExploreData?: (insightId: string) => void;
+  emptyHint?: React.ReactNode;
+  thisWeeksBriefingCompact?: boolean;
+  executedBriefingInsightIds?: readonly BriefingInsightId[];
+  reportLibrary?: readonly ReportLibraryEntry[];
+  onUpdateWidget?: (instanceId: string, patch: Partial<FinancePageWidget>) => void;
+  onDigitalTwinScenario?: (id: DigitalTwinScenarioId) => void;
+  modellingUi?: ModellingWidgetUiBridge | null;
+};
+
+/** Single-column stack for Finances page right rail */
+export function FinancePageSidebarWidgetStack({
+  widgets,
+  onTakeAction,
+  onExploreData,
+  emptyHint,
+  thisWeeksBriefingCompact = false,
+  executedBriefingInsightIds,
+  reportLibrary,
+  onUpdateWidget,
+  onDigitalTwinScenario,
+  modellingUi,
+}: FinancePageSidebarWidgetStackProps) {
+  const hydrated = hydratePlacedWidgets(widgets, reportLibrary).map((w) => ({
+    ...w,
+    layoutSize: 'compact' as const,
+  }));
+
+  if (hydrated.length === 0) {
+    return (
+      <div className="rounded-[8px] border border-dashed border-gray-200 bg-gray-50/50 p-6 text-center text-sm text-gray-500">
+        {emptyHint ?? 'No sidebar widgets. Use Customize page to add widgets to this column.'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 w-full min-w-0">
+      {hydrated.map((widget) => (
+        <div
+          key={widget.instanceId}
+          className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-5 flex flex-col hover:border-gray-300 transition-colors relative overflow-hidden"
+        >
+          {widget.id !== 'ambient_cfo' &&
+            widget.id !== 'suggested_modelling' &&
+            widget.id !== 'digital_twin' && (
+            <div className="mb-4">
+              <h3 className="text-base font-bold text-gray-900">{widget.title}</h3>
+              <p className="text-xs text-gray-500 mt-0.5">{widget.desc}</p>
+            </div>
+          )}
+          {widget.id === 'suggested_modelling' && (
+            <div className="mb-4">
+              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+                Modelling
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">{widget.desc}</p>
+            </div>
+          )}
+          {widget.id === EMBEDDED_REPORT_WIDGET_ID && onUpdateWidget && (
+            <ReportViewToolbar
+              className="mb-3"
+              value={widget.reportView ?? 'chart_compact'}
+              onChange={(v) => onUpdateWidget(widget.instanceId, { reportView: v })}
+            />
+          )}
+          <div className="flex-1 text-gray-600 text-sm min-w-0">
+            <FinanceWidgetContent
+              id={widget.id}
+              instanceId={widget.instanceId}
+              onTakeAction={onTakeAction}
+              onExploreData={onExploreData}
+              thisWeeksBriefingCompact={thisWeeksBriefingCompact}
+              executedBriefingInsightIds={executedBriefingInsightIds}
+              reportName={widget.reportName}
+              reportView={widget.reportView}
+              onDigitalTwinScenario={onDigitalTwinScenario}
+              modellingUi={widget.id === 'suggested_modelling' ? modellingUi : undefined}
             />
           </div>
         </div>

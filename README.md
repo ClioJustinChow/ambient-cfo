@@ -1,5 +1,7 @@
 # Ambient CFO
 
+**Git repository root:** this folder (`ambient-cfo`). Do not initialize Git in the parent `prototyping` directory if you want a clean Vercel import—connect Vercel to a repo whose root is this project.
+
 Clio Accounting–style financial dashboard with **Ambient CFO**: search, natural-language queries, strategic modeling, reports, and recovery-plan flows.
 
 Original design reference: [Figma – Ambient CFO](https://www.figma.com/design/Op5jvZRSleVpduRQWkDwK3/Ambient-CFO).
@@ -21,7 +23,9 @@ Open the URL shown in the terminal (usually `http://localhost:5173`).
 
 ## Deploy to Vercel
 
-### 1. Git (this folder as repo root)
+### 1. Git (repo root = `ambient-cfo`)
+
+The remote repository should contain the contents of **`ambient-cfo`** at its root (not `prototyping/ambient-cfo` as a nested path unless you set Vercel **Root Directory** accordingly).
 
 If you haven’t committed yet, set your identity once (or use `git config` in this repo only):
 
@@ -45,13 +49,11 @@ git branch -M main
 git push -u origin main
 ```
 
-If your Git repo root is a parent folder (e.g. `prototyping`), set **Root Directory** to `ambient-cfo` in Vercel (step 2).
-
 ### 2. Vercel
 
 1. [vercel.com](https://vercel.com) → **Add New… → Project** → import the repository.
 2. **Framework Preset:** Vite (auto-detected).
-3. **Root Directory:** leave blank if this repo is only `ambient-cfo`; otherwise set `ambient-cfo`.
+3. **Root Directory:** leave **blank** when the connected repo’s root is this `ambient-cfo` project. Only set `ambient-cfo` if you imported a monorepo whose root is a parent folder.
 4. **Build Command:** `npm run build` · **Output Directory:** `dist`.
 5. Deploy — share the `*.vercel.app` URL.
 

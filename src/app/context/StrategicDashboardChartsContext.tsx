@@ -5,6 +5,7 @@ import type { BriefingFinancialSnapshot } from '../data/briefingFinancialImpact'
 export type StrategicDashboardChartsContextValue = {
   displayStrategicData: StrategicMonthRow[];
   selectedModelId: string | null;
+  peerBenchmarkEnabled: boolean;
   briefingSnapshot: BriefingFinancialSnapshot;
 };
 

@@ -48,7 +48,7 @@ export const CX_PILLAR_NOTIFICATIONS: CxPillarNotification[] = [
     pillar: 'recording',
     pillarLabel: CX_PILLAR_LABEL.recording,
     title: 'Trust alert: retainer approaching floor',
-    body: 'Trust balance for client Chen, M. is approaching the retainer floor. Request funds transfer to client with approval from the responsible attorney, Sarah Kim?',
+    body: 'Trust balance for client Chen, M. is approaching the retainer floor. Request funds transfer to client with approval from the responsible attorney, Michael Torres?',
     timeLabel: '12 min ago',
     navigateTo: 'Funds In',
   },

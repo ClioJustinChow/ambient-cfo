@@ -29,7 +29,7 @@ export const AMBIENT_ACTIONS_HISTORY: AmbientActionHistoryItem[] = [
   {
     id: 'hist-trust',
     title: 'Trust balance review — Chen, M.',
-    body: 'We detected the trust balance approaching the retainer floor, drafted a client funds-transfer request, and routed it for approval to responsible attorney Sarah Kim.',
+    body: 'We detected the trust balance approaching the retainer floor, drafted a client funds-transfer request, and routed it for approval to responsible attorney Michael Torres.',
     timeLabel: '12 min ago',
     navigateTo: 'Funds In',
   },

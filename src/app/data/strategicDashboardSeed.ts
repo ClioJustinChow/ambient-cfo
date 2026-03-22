@@ -16,4 +16,8 @@ export type StrategicMonthRow = (typeof strategicData)[number] & {
   altCash?: number;
   altBurn?: number;
   altRunway?: number;
+  /** Anonymized peer composite (Modelling → Benchmark against peers) */
+  peerCash?: number;
+  peerBurn?: number;
+  peerRunway?: number;
 };

@@ -11,11 +11,9 @@ import {
   Plug, 
   Settings,
   Sparkles,
-  Send,
   AlertCircle,
   X,
   ChevronDown,
-  CheckCircle2,
   TrendingUp,
   History,
   Info,
@@ -63,6 +61,8 @@ import { Label } from './components/ui/label';
 import { DashboardCustomizer } from './components/DashboardCustomizer';
 import { BriefingSidePanel, type BriefingPanelState } from './components/BriefingSidePanel';
 import { InboxPage } from './components/InboxPage';
+import { FloatingChatBar } from './components/clio-teammate/FloatingChatBar';
+import { SpecializedTeammateRail } from './components/clio-teammate/SpecializedTeammateRail';
 import type { AiActivityEntry } from './types/inbox';
 import { isBriefingInsightId, BRIEFING_ACTION_HEADLINE, type BriefingInsightId } from './data/briefingPanelContent';
 import { BRIEFING_INSIGHT_ITEMS } from './data/briefingInsights';
@@ -70,16 +70,44 @@ import { AMBIENT_ACTIONS_HISTORY } from './data/ambientActionsHistory';
 import { ReportDetail } from './components/ReportDetail';
 import {
   FinancePageWidgetGrid,
+  FinancePageSidebarWidgetStack,
   DEFAULT_FP_DEFAULT_WIDGETS,
+  DEFAULT_FP_DEFAULT_SIDEBAR_WIDGETS,
   DEFAULT_NEW_PAGE_WIDGETS,
+  DEFAULT_NEW_PAGE_SIDEBAR_WIDGETS,
   type FinancePageWidget,
+  type MainGridColumns,
+  type ModellingWidgetUiBridge,
 } from './components/financeWidgetCatalog';
 import { strategicData } from './data/strategicDashboardSeed';
 import { buildBriefingFinancialSnapshot } from './data/briefingFinancialImpact';
+import {
+  mergeStrategicRowsWithModelling,
+  type PeerBenchmarkPageContext,
+} from './data/peerBenchmarkSeries';
 import { StrategicDashboardChartsProvider } from './context/StrategicDashboardChartsContext';
+import {
+  FIRM_NAME,
+  FIRM_ATTORNEY_COUNT,
+  USER_FULL_NAME,
+  USER_INITIALS,
+  USER_EMAIL,
+  USER_ROLE,
+  FIRM_STORY,
+  FINANCE_DEFAULT_PAGE_TITLE,
+} from './data/prototypePersona';
+import type { DigitalTwinScenarioId } from './components/DigitalTwinWidget';
 
-/** Custom dashboard pages under Finances (id, title, persisted widget layout). */
-type FinanceCustomPage = { id: string; title: string; widgets: FinancePageWidget[] };
+/** Custom dashboard pages under Finances (id, title, main + sidebar widget layout). */
+type FinanceCustomPage = {
+  id: string;
+  title: string;
+  widgets: FinancePageWidget[];
+  sidebarWidgets: FinancePageWidget[];
+  mainGridColumns: MainGridColumns;
+  /** When false, main grid is full width and the right rail is hidden. */
+  showSidebar: boolean;
+};
 
 type ScenarioModelAction =
   | { text: string; type: 'navigate'; target: string }
@@ -361,7 +389,7 @@ function createUserFinancialModel(input: {
 
 type DashboardPresence = 'collaborating' | 'viewing' | 'idle';
 
-/** People with access to the 2026 Strategic Roadmap + mock live presence */
+/** People with access to the strategic roadmap + mock live presence */
 const STRATEGIC_DASHBOARD_ACCESS: {
   id: string;
   name: string;
@@ -369,9 +397,9 @@ const STRATEGIC_DASHBOARD_ACCESS: {
   avatarClass: string;
   presence: DashboardPresence;
 }[] = [
-  { id: '1', name: 'Sarah Kim', initials: 'SK', avatarClass: 'bg-violet-600 text-white', presence: 'collaborating' },
+  { id: '1', name: USER_FULL_NAME, initials: USER_INITIALS, avatarClass: 'bg-emerald-600 text-white', presence: 'collaborating' },
   { id: '2', name: 'Michael Torres', initials: 'MT', avatarClass: 'bg-sky-600 text-white', presence: 'viewing' },
-  { id: '3', name: 'Jennifer Hartwell', initials: 'JH', avatarClass: 'bg-emerald-600 text-white', presence: 'viewing' },
+  { id: '3', name: 'Elena Vasquez', initials: 'EV', avatarClass: 'bg-violet-600 text-white', presence: 'viewing' },
   { id: '4', name: 'David Okonkwo', initials: 'DO', avatarClass: 'bg-slate-500 text-white', presence: 'idle' },
 ];
 
@@ -404,12 +432,13 @@ export default function App() {
   const [dismissedAmbientHistoryIds, setDismissedAmbientHistoryIds] = useState<string[]>([]);
   const [aiActivityLog, setAiActivityLog] = useState<AiActivityEntry[]>([]);
   const [showMorePlans, setShowMorePlans] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const [teammateRailOpen, setTeammateRailOpen] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [hasExecuted, setHasExecuted] = useState(false);
   const [isFinancesOpen, setIsFinancesOpen] = useState(true);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [peerBenchmarkEnabled, setPeerBenchmarkEnabled] = useState(false);
   /** Model ids promoted from Modelling → Financial Goals (order preserved) */
   const [financialGoalModelIds, setFinancialGoalModelIds] = useState<string[]>([]);
   const [userFinancialModels, setUserFinancialModels] = useState<FinancialScenarioModel[]>([]);
@@ -421,7 +450,14 @@ export default function App() {
   const createModelAbortRef = React.useRef(false);
   const [chatHistory, setChatHistory] = useState<{role: 'user' | 'ai', content: string}[]>([]);
   const [financeCustomPages, setFinanceCustomPages] = useState<FinanceCustomPage[]>([
-    { id: 'fp_default', title: '2026 Strategic Roadmap', widgets: DEFAULT_FP_DEFAULT_WIDGETS },
+    {
+      id: 'fp_default',
+      title: FINANCE_DEFAULT_PAGE_TITLE,
+      widgets: DEFAULT_FP_DEFAULT_WIDGETS,
+      sidebarWidgets: DEFAULT_FP_DEFAULT_SIDEBAR_WIDGETS,
+      mainGridColumns: 2,
+      showSidebar: true,
+    },
   ]);
   type CustomizerContext = { mode: 'create' } | { mode: 'edit'; pageId: string };
   const [customizerContext, setCustomizerContext] = useState<CustomizerContext | null>(null);
@@ -470,15 +506,33 @@ export default function App() {
     [executedBriefingPlans],
   );
 
-  const displayStrategicData = React.useMemo(() => {
-    return briefingFinancialSnapshot.strategicRows.map((data, index) => {
-      if (selectedModelId) {
-        const modelData = allFinancialModels.find((m) => m.id === selectedModelId)?.impact[index];
-        return { ...data, ...modelData };
-      }
-      return data;
-    });
-  }, [briefingFinancialSnapshot.strategicRows, selectedModelId, allFinancialModels]);
+  const peerBenchmarkPageContext = React.useMemo((): PeerBenchmarkPageContext | null => {
+    if (!activeFinancePage) return null;
+    return {
+      snapshot: briefingFinancialSnapshot,
+      mainWidgetIds: activeFinancePage.widgets.map((w) => w.widgetId),
+      sidebarWidgetIds: activeFinancePage.showSidebar
+        ? activeFinancePage.sidebarWidgets.map((w) => w.widgetId)
+        : [],
+    };
+  }, [activeFinancePage, briefingFinancialSnapshot]);
+
+  const displayStrategicData = React.useMemo(
+    () =>
+      mergeStrategicRowsWithModelling(briefingFinancialSnapshot.strategicRows, {
+        peerBenchmarkEnabled,
+        selectedModelId,
+        getScenarioImpact: (id, index) => allFinancialModels.find((m) => m.id === id)?.impact[index],
+        peerPageContext: peerBenchmarkPageContext,
+      }),
+    [
+      briefingFinancialSnapshot.strategicRows,
+      peerBenchmarkEnabled,
+      selectedModelId,
+      allFinancialModels,
+      peerBenchmarkPageContext,
+    ],
+  );
 
   const financialGoalsLinkedModels = React.useMemo(
     () =>
@@ -488,21 +542,58 @@ export default function App() {
     [financialGoalModelIds, allFinancialModels],
   );
 
-  const addModelToFinancialGoals = (modelId: string) => {
-    if (financialGoalModelIds.includes(modelId)) {
-      toast.message('This model is already in Financial Goals');
-      return;
-    }
-    setFinancialGoalModelIds((prev) => [...prev, modelId]);
-    toast.success('Model added to Financial Goals');
-    const m = allFinancialModels.find((x) => x.id === modelId);
-    pushAiActivity({
-      kind: 'model_added_to_goals',
-      title: 'Added model to Financial Goals',
-      detail: m?.name ?? 'Scenario model',
-    });
-    setActivePage('Financial Goals');
-  };
+  const getCustomizerStrategicRows = React.useCallback(
+    (
+      previewModelId: string | null,
+      customizerPeerEnabled: boolean,
+      customizerPeerPageContext: PeerBenchmarkPageContext | null,
+    ) =>
+      mergeStrategicRowsWithModelling(briefingFinancialSnapshot.strategicRows, {
+        peerBenchmarkEnabled: customizerPeerEnabled,
+        selectedModelId: previewModelId,
+        getScenarioImpact: (id, index) => allFinancialModels.find((m) => m.id === id)?.impact[index],
+        peerPageContext: customizerPeerPageContext,
+      }),
+    [briefingFinancialSnapshot.strategicRows, allFinancialModels],
+  );
+
+  const addModelToFinancialGoals = React.useCallback(
+    (modelId: string) => {
+      if (financialGoalModelIds.includes(modelId)) {
+        toast.message('This model is already in Financial Goals');
+        return;
+      }
+      setFinancialGoalModelIds((prev) => [...prev, modelId]);
+      toast.success('Model added to Financial Goals');
+      const m = allFinancialModels.find((x) => x.id === modelId);
+      pushAiActivity({
+        kind: 'model_added_to_goals',
+        title: 'Added model to Financial Goals',
+        detail: m?.name ?? 'Scenario model',
+      });
+      setActivePage('Financial Goals');
+    },
+    [financialGoalModelIds, allFinancialModels, pushAiActivity],
+  );
+
+  const modellingUiBridge = React.useMemo(
+    (): ModellingWidgetUiBridge => ({
+      models: allFinancialModels.map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description,
+        isUserCreated: m.isUserCreated,
+      })),
+      selectedModelId,
+      onTogglePreview: (id) => setSelectedModelId((p) => (p === id ? null : id)),
+      financialGoalModelIds,
+      onAddToGoals: addModelToFinancialGoals,
+      onOpenCreateModel: () => setCreateModelDialogOpen(true),
+      peerBenchmarkEnabled,
+      onPeerBenchmarkChange: setPeerBenchmarkEnabled,
+    }),
+    [allFinancialModels, selectedModelId, financialGoalModelIds, addModelToFinancialGoals, peerBenchmarkEnabled],
+  );
 
   const removeModelFromFinancialGoals = (modelId: string) => {
     setFinancialGoalModelIds((prev) => prev.filter((id) => id !== modelId));
@@ -518,9 +609,9 @@ export default function App() {
   const [sharedDashboardUsers, setSharedDashboardUsers] = useState<
     { id: string; email: string; permission: 'collaborator' | 'viewer' }[]
   >([
-    { id: 'shared-1', email: 'partner@hartwellmorris.com', permission: 'collaborator' },
-    { id: 'shared-2', email: 'cfo@hartwellmorris.com', permission: 'viewer' },
-    { id: 'shared-3', email: 'controller@hartwellmorris.com', permission: 'viewer' },
+    { id: 'shared-1', email: 'm.torres@summitlegal.com', permission: 'collaborator' },
+    { id: 'shared-2', email: 'finance@summitlegal.com', permission: 'viewer' },
+    { id: 'shared-3', email: 'controller@summitlegal.com', permission: 'viewer' },
   ]);
 
   useEffect(() => {
@@ -626,6 +717,8 @@ export default function App() {
     const textToSubmit = query || chatInput;
     if (!textToSubmit.trim()) return;
 
+    setTeammateRailOpen(true);
+
     pushAiActivity({
       kind: 'chat_submitted',
       title: 'Ambient CFO query',
@@ -635,7 +728,6 @@ export default function App() {
     const newUserMsg = { role: 'user' as const, content: textToSubmit };
     setChatHistory(prev => [...prev, newUserMsg]);
     setChatInput("");
-    setShowSuggestions(false);
 
     // Initial loading indicator message
     const loadingMsgId = Date.now().toString();
@@ -742,8 +834,14 @@ export default function App() {
     "How can we reduce overhead by 5%?",
     "Which clients have the oldest A/R?",
     "Model hiring 2 new associates",
-    "What was last month's profit margin?"
+    "What was last month's profit margin?",
+    "Digital Twin: what if two senior associates leave—how does runway change?",
+    "Digital Twin: model a 10% billing rate increase in Real Estate",
   ];
+
+  const handleDigitalTwinScenario = React.useCallback((_id: DigitalTwinScenarioId) => {
+    setActivePage('fp_default');
+  }, []);
 
   // Sidebar Navigation Items matching the provided reference image
   const navItems = React.useMemo((): NavItem[] => [
@@ -910,7 +1008,11 @@ export default function App() {
 
         <div className="border-b border-[#e5e7eb] pt-[21px] pb-[21px] flex flex-col justify-center min-h-[88.5px] shrink-0 transition-all duration-300">
           <div className="flex md:hidden items-center justify-between px-[21px] gap-3">
-            <h1 className="font-semibold text-[#101828] text-[21px] leading-[31.5px] tracking-[-0.3589px]">Clio Accounting</h1>
+            <div className="min-w-0">
+              <h1 className="font-semibold text-[#101828] text-[21px] leading-[31.5px] tracking-[-0.3589px]">Clio Accounting</h1>
+              <p className="truncate text-[11px] font-medium text-[#6a7282]">{FIRM_NAME}</p>
+              <p className="truncate text-[10px] text-[#9ca3af]">{FIRM_ATTORNEY_COUNT} attorneys</p>
+            </div>
             <button
               type="button"
               className="shrink-0 rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
@@ -924,8 +1026,10 @@ export default function App() {
             {isNavCollapsed ? (
               <div className="w-8 h-8 bg-blue-600 rounded-[8px] flex items-center justify-center text-white font-bold text-lg shrink-0">C</div>
             ) : (
-              <div className="animate-in fade-in duration-300">
+              <div className="animate-in fade-in duration-300 min-w-0">
                 <h1 className="font-semibold text-[#101828] text-[21px] leading-[31.5px] tracking-[-0.3589px] whitespace-nowrap">Clio Accounting</h1>
+                <p className="truncate text-[11px] font-medium text-[#6a7282] mt-0.5">{FIRM_NAME}</p>
+                <p className="truncate text-[10px] text-[#9ca3af]">{FIRM_ATTORNEY_COUNT} attorneys</p>
               </div>
             )}
           </div>
@@ -1067,11 +1171,11 @@ export default function App() {
               title={isNavCollapsed ? 'User Profile' : undefined}
             >
               <div className="w-[21px] h-[21px] rounded-full bg-blue-50 border border-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold shrink-0">
-                JC
+                {USER_INITIALS}
               </div>
               {!isNavCollapsed && (
                 <div className="min-w-0 animate-in fade-in duration-300">
-                  <p className="text-[12.25px] leading-[15px] font-semibold text-[#101828] truncate">Justin Chow</p>
+                  <p className="text-[12.25px] leading-[15px] font-semibold text-[#101828] truncate">{USER_FULL_NAME}</p>
                 </div>
               )}
             </a>
@@ -1117,11 +1221,38 @@ export default function App() {
                 ? DEFAULT_NEW_PAGE_WIDGETS
                 : financeCustomPages.find((p) => p.id === customizerContext.pageId)?.widgets ?? []
             }
-            onSaveDashboard={(title, widgets) => {
+            initialSidebarWidgets={
+              customizerContext.mode === 'create'
+                ? DEFAULT_NEW_PAGE_SIDEBAR_WIDGETS
+                : financeCustomPages.find((p) => p.id === customizerContext.pageId)?.sidebarWidgets ??
+                  DEFAULT_NEW_PAGE_SIDEBAR_WIDGETS
+            }
+            initialShowSidebar={
+              customizerContext.mode === 'create'
+                ? true
+                : financeCustomPages.find((p) => p.id === customizerContext.pageId)?.showSidebar ?? true
+            }
+            getCustomizerStrategicRows={getCustomizerStrategicRows}
+            modellingWidgetModels={modellingUiBridge.models}
+            financialGoalModelIds={financialGoalModelIds}
+            onModellingAddToGoals={addModelToFinancialGoals}
+            onModellingOpenCreateModel={() => setCreateModelDialogOpen(true)}
+            initialPeerBenchmarkEnabled={peerBenchmarkEnabled}
+            onSaveDashboard={({ title, widgets, sidebarWidgets, mainGridColumns, showSidebar }) => {
               const t = title.trim() || 'Untitled dashboard';
               if (customizerContext.mode === 'create') {
                 const id = `fp_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-                setFinanceCustomPages((prev) => [...prev, { id, title: t, widgets }]);
+                setFinanceCustomPages((prev) => [
+                  ...prev,
+                  {
+                    id,
+                    title: t,
+                    widgets,
+                    sidebarWidgets,
+                    mainGridColumns,
+                    showSidebar,
+                  },
+                ]);
                 setActivePage(id);
                 toast.success('New page added under Finances');
                 pushAiActivity({
@@ -1132,7 +1263,9 @@ export default function App() {
               } else {
                 const pid = customizerContext.pageId;
                 setFinanceCustomPages((prev) =>
-                  prev.map((p) => (p.id === pid ? { ...p, title: t, widgets } : p)),
+                  prev.map((p) =>
+                    p.id === pid ? { ...p, title: t, widgets, sidebarWidgets, mainGridColumns, showSidebar } : p,
+                  ),
                 );
                 toast.success('Dashboard updated');
                 pushAiActivity({
@@ -1167,6 +1300,10 @@ export default function App() {
             }}
             onExploreData={(insightId) => {
               setBriefingPanel({ mode: 'explore', insightId: resolveBriefingInsightId(insightId) });
+              setCustomizerContext(null);
+            }}
+            onDigitalTwinScenario={(id) => {
+              handleDigitalTwinScenario(id);
               setCustomizerContext(null);
             }}
           />
@@ -1498,7 +1635,7 @@ export default function App() {
                       <Input
                         id="share-email"
                         type="email"
-                        placeholder="name@firm.com"
+                        placeholder="name@summitlegal.com"
                         value={shareEmailInput}
                         onChange={(e) => setShareEmailInput(e.target.value)}
                         onKeyDown={(e) => {
@@ -1602,13 +1739,24 @@ export default function App() {
               value={{
                 displayStrategicData,
                 selectedModelId,
+                peerBenchmarkEnabled,
                 briefingSnapshot: briefingFinancialSnapshot,
               }}
             >
-            <div className="flex flex-col lg:flex-row gap-8 items-start w-full">
-              <div className="flex-1 min-w-0 flex flex-col gap-6 w-full order-2 lg:order-1">
+            <div
+              className={`flex w-full items-start gap-8 ${
+                activeFinancePage.showSidebar ? 'flex-col lg:flex-row' : 'flex-col'
+              }`}
+            >
+              <div
+                className={`min-w-0 flex flex-col gap-6 w-full ${
+                  activeFinancePage.showSidebar ? 'flex-1 order-2 lg:order-1' : 'flex-1'
+                }`}
+              >
                 <FinancePageWidgetGrid
                   widgets={activeFinancePage.widgets}
+                  mainGridColumns={2}
+                  modellingUi={modellingUiBridge}
                   reportLibrary={reportLibraryForFinance}
                   onUpdateWidget={(instanceId, patch) => {
                     const pid = activePage;
@@ -1634,91 +1782,46 @@ export default function App() {
                   onExploreData={(insightId) => {
                     setBriefingPanel({ mode: 'explore', insightId: resolveBriefingInsightId(insightId) });
                   }}
+                  onDigitalTwinScenario={handleDigitalTwinScenario}
                 />
               </div>
 
-              <aside className="w-full lg:w-[320px] shrink-0 flex flex-col gap-4 order-1 lg:order-2 lg:sticky lg:top-6 lg:self-start">
-                <div className="bg-white border border-gray-200 rounded-[8px] p-5 shadow-sm flex flex-col">
-                  <h3 className="text-base font-bold text-gray-900 flex items-center gap-2 mb-4">
-                    <Sparkles className="w-4 h-4 text-blue-600 shrink-0" /> Modelling
-                  </h3>
-                  <div className="flex flex-col gap-3 flex-1">
-                    {allFinancialModels.map((model) => (
-                      <div
-                        key={model.id}
-                        className={`text-left p-4 rounded-[8px] border transition-all ${
-                          selectedModelId === model.id 
-                            ? 'border-[#8b5cf6] bg-[#8b5cf6]/5 ring-1 ring-[#8b5cf6]/20' 
-                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                          <span className={`font-semibold text-sm min-w-0 ${selectedModelId === model.id ? 'text-[#8b5cf6]' : 'text-gray-900'}`}>
-                            {model.name}
-                          </span>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {model.isUserCreated && (
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-100 px-1.5 py-0.5 rounded-[4px]">
-                                Yours
-                              </span>
-                            )}
-                            {selectedModelId === model.id && <CheckCircle2 className="w-4 h-4 text-[#8b5cf6]" />}
-                          </div>
-                        </div>
-                        <p className="text-xs text-gray-500 mb-3">{model.description}</p>
-                        <div className="flex gap-2">
-                          <button 
-                            type="button"
-                            onClick={() => setSelectedModelId(selectedModelId === model.id ? null : model.id)}
-                            className="flex-1 bg-white border border-gray-200 text-gray-700 py-1.5 rounded-[6px] text-xs font-medium hover:bg-gray-50 transition-colors"
-                          >
-                            {selectedModelId === model.id ? 'Hide Preview' : 'Preview'}
-                          </button>
-                          <button 
-                            type="button"
-                            disabled={financialGoalModelIds.includes(model.id)}
-                            onClick={() => addModelToFinancialGoals(model.id)}
-                            className={`flex-1 py-1.5 rounded-[6px] text-xs font-medium transition-colors flex items-center justify-center gap-1 border ${
-                              financialGoalModelIds.includes(model.id)
-                                ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-default'
-                                : 'bg-emerald-50 text-emerald-800 border-emerald-100 hover:bg-emerald-100'
-                            }`}
-                          >
-                            {financialGoalModelIds.includes(model.id) ? (
-                              <>
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                In goals
-                              </>
-                            ) : (
-                              <>
-                                <Target className="w-3.5 h-3.5" />
-                                Add to goals
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setCreateModelDialogOpen(true)}
-                    className="mt-4 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-[8px] text-xs font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" strokeWidth={2} />
-                    Create model
-                  </button>
-                </div>
-                <div className="bg-blue-50/50 border border-blue-100 rounded-[8px] p-5">
-                  <div className="flex gap-3">
-                    <Info className="w-5 h-5 text-blue-600 shrink-0" />
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-900">How modelling works</h4>
-                      <p className="text-xs text-gray-600 mt-1 leading-relaxed">Create your own scenario models or use starters below. Preview overlays cash, burn, and runway on the charts. Add to goals sends a model to your Financial Goals page to track alongside firm targets.</p>
-                    </div>
-                  </div>
-                </div>
-              </aside>
+              {activeFinancePage.showSidebar && (
+                <aside className="w-full lg:w-[320px] shrink-0 flex flex-col gap-4 order-1 lg:order-2 lg:sticky lg:top-6 lg:self-start">
+                  <FinancePageSidebarWidgetStack
+                    widgets={activeFinancePage.sidebarWidgets}
+                    modellingUi={modellingUiBridge}
+                    reportLibrary={reportLibraryForFinance}
+                    onUpdateWidget={(instanceId, patch) => {
+                      const pid = activePage;
+                      setFinanceCustomPages((prev) =>
+                        prev.map((p) =>
+                          p.id === pid
+                            ? {
+                                ...p,
+                                sidebarWidgets: p.sidebarWidgets.map((w) =>
+                                  w.instanceId === instanceId
+                                    ? { ...w, ...patch, layoutSize: 'compact' as const }
+                                    : w,
+                                ),
+                              }
+                            : p,
+                        ),
+                      );
+                    }}
+                    executedBriefingInsightIds={executedBriefingPlans}
+                    onTakeAction={(insightId) => {
+                      setShowMorePlans(false);
+                      setHasExecuted(false);
+                      setBriefingPanel({ mode: 'takeAction', insightId: resolveBriefingInsightId(insightId) });
+                    }}
+                    onExploreData={(insightId) => {
+                      setBriefingPanel({ mode: 'explore', insightId: resolveBriefingInsightId(insightId) });
+                    }}
+                    onDigitalTwinScenario={handleDigitalTwinScenario}
+                  />
+                </aside>
+              )}
 
               <Dialog
                 open={createModelDialogOpen}
@@ -1862,21 +1965,21 @@ export default function App() {
                     <div>
                       <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Full name</label>
                       <input
-                        defaultValue="Justin Chow"
+                        defaultValue={USER_FULL_NAME}
                         className="mt-1 w-full rounded-[8px] border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                       />
                     </div>
                     <div>
                       <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Work email</label>
                       <input
-                        defaultValue="justin@hartwellmorris.com"
+                        defaultValue={USER_EMAIL}
                         className="mt-1 w-full rounded-[8px] border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                       />
                     </div>
                     <div>
                       <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Role</label>
                       <input
-                        defaultValue="Managing Partner"
+                        defaultValue={USER_ROLE}
                         className="mt-1 w-full rounded-[8px] border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                       />
                     </div>
@@ -1888,6 +1991,11 @@ export default function App() {
                       />
                     </div>
                   </div>
+                </div>
+
+                <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6">
+                  <h2 className="text-base font-bold text-gray-900 mb-3">Firm context</h2>
+                  <p className="text-sm leading-relaxed text-gray-600">{FIRM_STORY}</p>
                 </div>
 
                 <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6">
@@ -1923,11 +2031,11 @@ export default function App() {
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Profile</p>
                   <div className="flex items-center gap-3">
                     <div className="h-12 w-12 rounded-full bg-blue-50 border border-blue-100 text-blue-700 flex items-center justify-center text-sm font-bold">
-                      JC
+                      {USER_INITIALS}
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-gray-900">Justin Chow</p>
-                      <p className="text-xs text-gray-500">Managing Partner</p>
+                      <p className="text-sm font-bold text-gray-900">{USER_FULL_NAME}</p>
+                      <p className="text-xs text-gray-500">{USER_ROLE}</p>
                     </div>
                   </div>
                 </div>
@@ -2383,10 +2491,10 @@ export default function App() {
                 <div className="space-y-5 flex-1 mt-2">
                   <div className="flex items-center justify-between group">
                     <div className="flex items-center space-x-3">
-                      <div className="w-9 h-9 rounded-[8px] bg-blue-50 border border-blue-100 flex items-center justify-center text-xs font-bold text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">JD</div>
+                      <div className="w-9 h-9 rounded-[8px] bg-blue-50 border border-blue-100 flex items-center justify-center text-xs font-bold text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">RM</div>
                       <div>
-                        <p className="text-sm font-bold text-gray-900">John D.</p>
-                        <p className="text-[11px] font-medium text-green-600">92% Realized</p>
+                        <p className="text-sm font-bold text-gray-900">Rachel Mercer</p>
+                        <p className="text-[11px] font-medium text-green-600">93% Realized</p>
                       </div>
                     </div>
                     <span className="text-sm font-bold text-gray-900">$420k</span>
@@ -2394,10 +2502,10 @@ export default function App() {
                   
                   <div className="flex items-center justify-between group">
                     <div className="flex items-center space-x-3">
-                      <div className="w-9 h-9 rounded-[8px] bg-gray-50 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 group-hover:bg-gray-600 group-hover:text-white transition-colors">SL</div>
+                      <div className="w-9 h-9 rounded-[8px] bg-gray-50 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 group-hover:bg-gray-600 group-hover:text-white transition-colors">AC</div>
                       <div>
-                        <p className="text-sm font-bold text-gray-900">Sarah L.</p>
-                        <p className="text-[11px] font-medium text-gray-500">88% Realized</p>
+                        <p className="text-sm font-bold text-gray-900">Alicia Chen</p>
+                        <p className="text-[11px] font-medium text-gray-500">91% Realized</p>
                       </div>
                     </div>
                     <span className="text-sm font-bold text-gray-900">$385k</span>
@@ -2405,10 +2513,10 @@ export default function App() {
                   
                   <div className="flex items-center justify-between group">
                     <div className="flex items-center space-x-3">
-                      <div className="w-9 h-9 rounded-[8px] bg-gray-50 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 group-hover:bg-gray-600 group-hover:text-white transition-colors">MR</div>
+                      <div className="w-9 h-9 rounded-[8px] bg-gray-50 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 group-hover:bg-gray-600 group-hover:text-white transition-colors">MT</div>
                       <div>
-                        <p className="text-sm font-bold text-gray-900">Mike R.</p>
-                        <p className="text-[11px] font-medium text-yellow-600">84% Realized</p>
+                        <p className="text-sm font-bold text-gray-900">Michael Torres</p>
+                        <p className="text-[11px] font-medium text-yellow-600">88% Realized</p>
                       </div>
                     </div>
                     <span className="text-sm font-bold text-gray-900">$310k</span>
@@ -2439,168 +2547,63 @@ export default function App() {
         onExecutePlan={handleExecute}
       />
 
-      {/* FLOATING COMMAND BAR (Ambient CFO) */}
-      <div className="fixed bottom-6 left-0 md:left-[239px] right-0 flex flex-col items-center justify-end z-40 pointer-events-none px-4 md:px-8">
-        
-        {/* Chat History Window */}
-        {chatHistory.length > 0 && (
-          <div className="w-full max-w-3xl pointer-events-auto bg-white/95 backdrop-blur-sm rounded-t-2xl shadow-[0_-8px_30px_rgb(0,0,0,0.08)] border border-gray-200 border-b-0 mb-[-1px] overflow-hidden flex flex-col transition-all duration-300 animate-in slide-in-from-bottom-4">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-[6px] bg-blue-50 flex items-center justify-center border border-blue-100">
-                  <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-                </div>
-                <span className="text-sm font-semibold text-gray-900">Ambient CFO</span>
-              </div>
-              <button onClick={() => setChatHistory([])} className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-100 transition-colors">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            
-            <div className="p-4 overflow-y-auto max-h-[400px] flex flex-col gap-4 custom-scrollbar bg-gray-50/50">
-              {chatHistory.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {msg.role === 'ai' && (
-                     <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center border border-blue-200 mr-2 shrink-0 self-end mb-1">
-                        <Sparkles className="h-4 w-4 text-blue-600" />
-                     </div>
-                  )}
-                  <div className={`p-3 text-[13px] leading-relaxed max-w-[80%] ${
-                    msg.role === 'user' 
-                      ? 'bg-blue-600 text-white rounded-[16px] rounded-br-[4px] shadow-sm' 
-                      : 'bg-white border border-gray-200 text-gray-800 rounded-[16px] rounded-bl-[4px] shadow-sm'
-                  }`}>
-                    {msg.role === 'ai' && i === chatHistory.length - 1 && msg.content === '...' ? (
-                      <div className="flex gap-1 items-center h-5 px-1">
-                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
-                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.15s'}}></div>
-                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.3s'}}></div>
-                      </div>
-                    ) : (
-                      msg.content
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div
-          className={`w-full max-w-3xl pointer-events-auto bg-white shadow-2xl border border-gray-200 transition-all duration-300 ${
-            chatHistory.length > 0 ? 'rounded-b-full rounded-t-none' : 'rounded-full'
-          }`}
-        >
-          {/* No overflow-hidden here — it clips the suggestions panel (bottom-full). */}
-          <div className="relative z-10 group rounded-full p-2">
-            <div className="flex items-center px-2 py-1">
-              <button
-                type="button"
-                aria-label="Open inbox"
-                onClick={() => {
-                  setActivePage('Inbox');
-                  closeMobileNav();
-                }}
-                className="relative shrink-0 p-0.5 rounded-[8px] hover:bg-blue-50 transition-colors mr-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-              >
-                <img
-                  src="/clio-accounting-icon.png"
-                  alt=""
-                  width={22}
-                  height={22}
-                  className="h-[22px] w-[22px] shrink-0 rounded-[6px] object-cover"
-                  aria-hidden
-                />
-              </button>
-              <input 
-                type="text" 
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleChatSubmit();
-                }}
-                onFocus={() => setShowSuggestions(true)}
-                onBlur={() => {
-                  setTimeout(() => setShowSuggestions(false), 200);
-                }}
-                placeholder="Search the product or ask your Ambient CFO..."
-                className="flex-1 bg-transparent border-none text-sm text-gray-900 focus:outline-none placeholder:text-gray-400 py-2"
-              />
-              <div className="flex items-center ml-3 pl-3 border-l border-gray-100">
-                <button 
-                  onClick={() => handleChatSubmit()}
-                  className="p-2 rounded-[8px] text-white transition-opacity shadow-sm hover:opacity-90"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  <Send className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            
-            {showSuggestions && chatHistory.length === 0 && (
-              <div className="absolute bottom-full left-0 z-50 w-full mb-2 bg-white border border-gray-200 shadow-2xl rounded-2xl p-3 animate-in fade-in slide-in-from-bottom-2 duration-200 flex flex-col pointer-events-auto">
-                {chatInput && globalSearchResults.length > 0 && (
-                  <div className="mb-3">
-                    <p className="text-xs font-semibold text-gray-500 mb-2 px-2">Navigate to</p>
-                    <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto custom-scrollbar">
-                      {globalSearchResults.map((result, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => {
-                            setChatInput("");
-                            result.action();
-                            setShowSuggestions(false);
-                          }}
-                          className="w-full flex items-center gap-3 p-2 hover:bg-blue-50 rounded-[8px] transition-colors text-left group"
-                        >
-                          <div className="w-8 h-8 rounded-[8px] bg-blue-100 flex items-center justify-center shrink-0 text-blue-600 group-hover:bg-blue-200 transition-colors">
-                            <result.icon className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <div className="font-semibold text-sm text-gray-900 leading-tight">{result.title}</div>
-                            <div className="text-xs text-gray-500">{result.subtitle}</div>
-                          </div>
-                        </button>
-                      ))}
+      <FloatingChatBar
+        isVisible={!isCustomizing}
+        notificationCount={notificationBadgeCount}
+        onOpen={() => setTeammateRailOpen(true)}
+        onSubmitMessage={(msg) => {
+          setTeammateRailOpen(true);
+          if (msg === '__sparkle__') return;
+          handleChatSubmit(msg);
+        }}
+        onInboxClick={() => {
+          setActivePage('Inbox');
+          closeMobileNav();
+        }}
+        suggestedQuestions={suggestedQuestions}
+        chatInput={chatInput}
+        onChatInputChange={setChatInput}
+        brandColor={brandColor}
+        placeholder="Search the product or ask your Ambient CFO..."
+        navigationSection={
+          chatInput.trim() && globalSearchResults.length > 0 ? (
+            <div className="mb-3">
+              <p className="mb-2 px-2 text-xs font-semibold text-gray-500">Navigate to</p>
+              <div className="custom-scrollbar flex max-h-[160px] flex-col gap-1 overflow-y-auto">
+                {globalSearchResults.map((result, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setChatInput('');
+                      result.action();
+                    }}
+                    className="group flex w-full items-center gap-3 rounded-[8px] p-2 text-left transition-colors hover:bg-blue-50"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-blue-100 text-blue-600 transition-colors group-hover:bg-blue-200">
+                      <result.icon className="h-4 w-4" />
                     </div>
-                  </div>
-                )}
-                
-                <p className="text-xs font-semibold text-gray-500 mb-2 px-2">
-                  {chatInput ? 'Ask Ambient CFO' : 'Suggested Queries'}
-                </p>
-                <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto custom-scrollbar">
-                  {chatInput && (
-                    <button 
-                      onClick={() => {
-                        handleChatSubmit(chatInput);
-                      }}
-                      className="text-left text-sm text-gray-700 py-2 px-3 rounded-[8px] hover:bg-blue-50 hover:text-blue-600 transition-colors w-full flex items-center bg-gray-50/50"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 mr-2 text-blue-500 shrink-0" />
-                      <span className="font-medium mr-1">Ask:</span> "{chatInput}"
-                    </button>
-                  )}
-                  {suggestedQuestions
-                    .filter(q => q.toLowerCase().includes(chatInput.toLowerCase()))
-                    .map((q, i) => (
-                    <button 
-                      key={i}
-                      onClick={() => {
-                        handleChatSubmit(q);
-                      }}
-                      className="text-left text-sm text-gray-700 py-2 px-3 rounded-[8px] hover:bg-blue-50 hover:text-blue-600 transition-colors w-full flex items-start gap-2"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
-                      <span>{q}</span>
-                    </button>
-                  ))}
-                </div>
+                    <div>
+                      <div className="text-sm font-semibold leading-tight text-gray-900">{result.title}</div>
+                      <div className="text-xs text-gray-500">{result.subtitle}</div>
+                    </div>
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
-        </div>
-      </div>
+            </div>
+          ) : null
+        }
+      />
+
+      <SpecializedTeammateRail
+        open={teammateRailOpen}
+        onOpenChange={setTeammateRailOpen}
+        chatHistory={chatHistory}
+        onUserSend={(text) => handleChatSubmit(text)}
+        onClearChat={() => setChatHistory([])}
+        brandColor={brandColor}
+      />
 
       {/* Embedded CSS for custom styling */}
       <style dangerouslySetInnerHTML={{ __html: `
