@@ -120,9 +120,12 @@ export function isWidgetPinDisabled(widgetId: string): boolean {
   return widgetId === 'suggested_modelling';
 }
 
-/** Modelling is a single interactive surface; Full / Summary / Chart does not apply. */
+/**
+ * Widgets where Full / Summary / Chart is hidden: Modelling (single surface) and
+ * Financial Health Overview detail tiles (`fho_*`), which use their own layout on that page.
+ */
 export function isWidgetDisplayModeToolbarHidden(widgetId: string): boolean {
-  return widgetId === 'suggested_modelling';
+  return widgetId === 'suggested_modelling' || isFinancialHealthOverviewWidgetId(widgetId);
 }
 
 export type FinancePageWidget = {
