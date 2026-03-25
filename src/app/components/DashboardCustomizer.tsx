@@ -36,6 +36,7 @@ import {
   type ModellingWidgetUiBridge,
   type FinanceWidgetExplorePayload,
   isFinancialHealthOverviewWidgetId,
+  isWidgetDisplayModeToolbarHidden,
 } from './financeWidgetCatalog';
 import { getFinanceWidgetExploreAction } from '../data/financeWidgetDrillDown';
 import type { LucideIcon } from 'lucide-react';
@@ -228,11 +229,13 @@ function SortableCanvasWidget({
         <p className="text-[11px] text-gray-500 mb-2 -mt-1 pl-7">{widget.desc}</p>
       )}
 
-      <ReportViewToolbar
-        className="mb-2"
-        value={widget.reportView ?? 'chart_compact'}
-        onChange={(v) => onReportViewChange(widget.instanceId, v)}
-      />
+      {!isWidgetDisplayModeToolbarHidden(widget.id) ? (
+        <ReportViewToolbar
+          className="mb-2"
+          value={widget.reportView ?? 'chart_compact'}
+          onChange={(v) => onReportViewChange(widget.instanceId, v)}
+        />
+      ) : null}
 
       <div className="flex-1 text-gray-600 text-sm min-w-0">
         <FinanceWidgetContent

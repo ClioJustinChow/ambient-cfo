@@ -7,6 +7,7 @@ import {
   deriveProfitLossTotals,
   profitLossRowsToLegacyTable,
 } from './profitLossReportModel';
+import { goalConnectionForEmbeddedReport, type RichFinancesSummary } from './widgetViewSummaries';
 
 export type ReportTableRow = {
   account: string;
@@ -127,10 +128,7 @@ export function getReportTableRows(reportName: string): ReportTableRow[] {
 
 export type ReportSummaryKpi = { label: string; value: string };
 
-export function getReportSummaryContent(reportName: string): {
-  kpis: ReportSummaryKpi[];
-  insight: string;
-} {
+export function getReportSummaryContent(reportName: string): RichFinancesSummary {
   const base = [
     { label: 'Period', value: 'This month' },
     { label: 'Basis', value: 'Accrual' },
@@ -144,45 +142,75 @@ export function getReportSummaryContent(reportName: string): {
     const opExRatio =
       t.totalRevenue > 0 ? Math.round((t.totalExpenses / t.totalRevenue) * 100) : 0;
     return {
+      headline: `${fmtK(t.netIncome)} net income (prototype)`,
+      chartBreakdown:
+        'The small area chart in Chart mode is a month-by-month trend of a single P&L-style metric. Full mode is the line-level report table; use filters there for matters and lenses.',
+      goalConnection: goalConnectionForEmbeddedReport(reportName),
+      plainLanguageInsights: [
+        `Revenue is ${fmtK(t.totalRevenue)} and operating expenses ratio to revenue at about ${opExRatio}%.`,
+        `Net income of ${fmtK(t.netIncome)} is revenue minus expenses in this default accrual view.`,
+        'When numbers move after briefing actions, the embedded chart and these figures update together.',
+      ],
       kpis: [
         ...base,
         { label: 'Net income', value: fmtK(t.netIncome) },
         { label: 'Revenue', value: fmtK(t.totalRevenue) },
         { label: 'OpEx ratio', value: `${opExRatio}%` },
       ],
-      insight:
-        'Default firm-wide view matches the PDF-style chart. Open the full report for matter filters, accrual vs cash, and legal expense lenses.',
     };
   }
   if (reportName === 'Balance Sheet') {
     return {
+      headline: '$310k assets · solid current ratio',
+      chartBreakdown:
+        'Chart mode shows a compact trend; Full mode lists assets, liabilities, and equity like a classic balance sheet.',
+      goalConnection: goalConnectionForEmbeddedReport(reportName),
+      plainLanguageInsights: [
+        'Current assets include operating cash and receivables; current ratio 1.42 suggests adequate short-term liquidity in the prototype.',
+        'Equity of $247,800 closes the sheet—assets equal liabilities plus equity.',
+        'Use Full view to walk account groups before partner or lender conversations.',
+      ],
       kpis: [
         ...base,
         { label: 'Total assets', value: '$310,200' },
         { label: 'Current ratio', value: '1.42' },
         { label: 'Equity', value: '$247,800' },
       ],
-      insight: 'Liquidity is stable; A/R represents ~21% of current assets.',
     };
   }
   if (reportName.includes('A/R') || reportName.includes('Aging')) {
     return {
+      headline: '$312k outstanding · watch 31–60',
+      chartBreakdown:
+        'The chart is a simple trend of a receivables metric; Summary lists headline KPIs; Full matches the aging table behind the widget.',
+      goalConnection: goalConnectionForEmbeddedReport(reportName),
+      plainLanguageInsights: [
+        'About 8% of balances are 90+ days—small in percentage but often high absolute dollars at risk.',
+        'DSO near 41 days means roughly how long invoices sit open on average in this sample.',
+        'Pair with the A/R aging Finances widget for the same buckets in visual form.',
+      ],
       kpis: [
         ...base,
         { label: 'Outstanding', value: '$312k' },
         { label: '90+ days', value: '8%' },
         { label: 'DSO', value: '41 days' },
       ],
-      insight: 'Aging is concentrated in two matters; reminders queued for 31–60 bucket.',
     };
   }
   return {
+    headline: `Summary: ${reportName}`,
+    chartBreakdown:
+      'Chart mode plots a short synthetic series for this report name. Full mode opens the structured table; figures below are representative totals.',
+    goalConnection: goalConnectionForEmbeddedReport(reportName),
+    plainLanguageInsights: [
+      `This prototype uses "${reportName}" as the label—line detail lives in Full.`,
+      'Key total and change vs prior are sample values until connected to live ledger data.',
+    ],
     kpis: [
       ...base,
       { label: 'Key total', value: '$105,000' },
       { label: 'Change vs prior', value: '+6.2%' },
     ],
-    insight: `Summary for "${reportName}" — drill into the full report for line-level detail.`,
   };
 }
 

@@ -69,7 +69,12 @@ import {
   collectionTrendSeries,
   partnerRealizationRows,
 } from '../data/dashboardMetricSeed';
-import { getCatalogWidgetFullRows, getCatalogWidgetSummary } from '../data/widgetViewSummaries';
+import {
+  getCatalogWidgetFullRows,
+  getCatalogWidgetSummary,
+  type CatalogSummaryContext,
+  type RichFinancesSummary,
+} from '../data/widgetViewSummaries';
 import { getFinanceWidgetExploreAction } from '../data/financeWidgetDrillDown';
 import { DIGITAL_TWIN_CATALOG_DESC } from '../data/prototypePersona';
 import { DigitalTwinWidget, type DigitalTwinScenarioId } from './DigitalTwinWidget';
@@ -112,6 +117,11 @@ export function isFinancialHealthOverviewWidgetId(widgetId: string): boolean {
 
 /** Widgets that must stay in Finances context (charts / goals bridge); no Dashboard pin. */
 export function isWidgetPinDisabled(widgetId: string): boolean {
+  return widgetId === 'suggested_modelling';
+}
+
+/** Modelling is a single interactive surface; Full / Summary / Chart does not apply. */
+export function isWidgetDisplayModeToolbarHidden(widgetId: string): boolean {
   return widgetId === 'suggested_modelling';
 }
 
@@ -501,14 +511,27 @@ function DashboardPinEmbeddedReportSummary({
 }
 
 function CatalogTriSummaryPanel({
+  headline,
+  chartBreakdown,
+  goalConnection,
+  plainLanguageInsights,
   kpis,
-  insight,
-}: {
-  kpis: { label: string; value: string }[];
-  insight: string;
-}) {
+}: RichFinancesSummary) {
   return (
     <div className="mt-2 space-y-3">
+      {headline ? (
+        <p className="text-sm font-semibold text-foreground leading-snug">{headline}</p>
+      ) : null}
+      <div className="space-y-1">
+        <p className="text-xs font-semibold text-foreground">What this chart shows</p>
+        <p className="text-xs text-muted-foreground leading-snug">{chartBreakdown}</p>
+      </div>
+      {goalConnection ? (
+        <div className="space-y-1 rounded-md border border-primary/15 bg-primary/[0.04] px-2.5 py-2">
+          <p className="text-xs font-semibold text-foreground">Why it matters for your goals</p>
+          <p className="text-xs text-muted-foreground leading-snug">{goalConnection}</p>
+        </div>
+      ) : null}
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {kpis.map((k) => (
           <li
@@ -520,7 +543,14 @@ function CatalogTriSummaryPanel({
           </li>
         ))}
       </ul>
-      <p className="text-[11px] text-gray-600 leading-snug border-t border-gray-100 pt-2">{insight}</p>
+      <div className="space-y-1.5 border-t border-gray-100 pt-2">
+        <p className="text-xs font-semibold text-foreground">What the numbers suggest</p>
+        <ul className="list-disc pl-4 space-y-1 text-xs text-muted-foreground leading-snug">
+          {plainLanguageInsights.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
@@ -546,7 +576,7 @@ function CatalogFullDetailTable({ rows }: { rows: { label: string; value: string
 function catalogTriMode(
   rv: ReportWidgetView,
   chart: React.ReactNode,
-  summary: { kpis: { label: string; value: string }[]; insight: string },
+  summary: RichFinancesSummary,
   full: React.ReactNode,
 ): React.ReactNode {
   if (rv === 'summary') return <CatalogTriSummaryPanel {...summary} />;
@@ -631,9 +661,16 @@ function FinanceWidgetBody({
   const chartId = instanceId || Math.random().toString(36).substr(2, 9);
   const gradientId = `color-${id}-${chartId}`;
   const lastStrategicRow = chartData[chartData.length - 1];
+  const summaryContext: CatalogSummaryContext = {
+    briefingSnapshot,
+    chartData,
+    lastStrategicRow,
+    selectedModelId,
+    peerBenchmarkEnabled,
+  };
 
   const tri = (widgetKey: string, chartEl: React.ReactNode) => {
-    const s = getCatalogWidgetSummary(widgetKey, briefingSnapshot, lastStrategicRow);
+    const s = getCatalogWidgetSummary(widgetKey, summaryContext);
     if (!s) return chartEl;
     const fullRows = getCatalogWidgetFullRows(widgetKey, briefingSnapshot, lastStrategicRow);
     return catalogTriMode(
@@ -950,7 +987,7 @@ function FinanceWidgetBody({
         ),
       );
     case 'ambient_cfo': {
-      const ac = getCatalogWidgetSummary('ambient_cfo', briefingSnapshot, lastStrategicRow);
+      const ac = getCatalogWidgetSummary('ambient_cfo', summaryContext);
       if (reportView === 'summary' && ac) {
         return <CatalogTriSummaryPanel {...ac} />;
       }
@@ -1232,22 +1269,7 @@ function FinanceWidgetBody({
         );
       }
       if (reportView === 'summary') {
-        return (
-          <div className="mt-2 space-y-3">
-            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {summary.kpis.map((k) => (
-                <li
-                  key={k.label}
-                  className="flex justify-between gap-2 text-[11px] rounded-md border border-gray-100 bg-gray-50/80 px-2.5 py-1.5"
-                >
-                  <span className="text-gray-500">{k.label}</span>
-                  <span className="font-semibold text-gray-900">{k.value}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="text-[11px] text-gray-600 leading-snug border-t border-gray-100 pt-2">{summary.insight}</p>
-          </div>
-        );
+        return <CatalogTriSummaryPanel {...summary} />;
       }
       return (
         <div className="w-full mt-2" style={{ height: chartH, minHeight: chartH }}>
@@ -1755,13 +1777,13 @@ export function FinancePageWidgetGrid({
               <p className="text-xs text-gray-500 mt-0.5">{widget.desc}</p>
             </div>
           )}
-          {onUpdateWidget && (
+          {onUpdateWidget && !isWidgetDisplayModeToolbarHidden(widget.id) ? (
             <ReportViewToolbar
               className="mb-3"
               value={widget.reportView ?? 'chart_compact'}
               onChange={(v) => onUpdateWidget(widget.instanceId, { reportView: v })}
             />
-          )}
+          ) : null}
           <div className={`flex-1 text-gray-600 text-sm min-w-0 ${showPinChrome ? 'pr-7' : ''}`}>
             <FinanceWidgetContent
               id={widget.id}
@@ -1914,13 +1936,13 @@ export function FinancePageSidebarWidgetStack({
               <p className="text-xs text-gray-500 mt-0.5">{widget.desc}</p>
             </div>
           )}
-          {onUpdateWidget && (
+          {onUpdateWidget && !isWidgetDisplayModeToolbarHidden(widget.id) ? (
             <ReportViewToolbar
               className="mb-3"
               value={widget.reportView ?? 'chart_compact'}
               onChange={(v) => onUpdateWidget(widget.instanceId, { reportView: v })}
             />
-          )}
+          ) : null}
           <div className={`flex-1 text-gray-600 text-sm min-w-0 ${showPinChrome ? 'pr-7' : ''}`}>
             <FinanceWidgetContent
               id={widget.id}
