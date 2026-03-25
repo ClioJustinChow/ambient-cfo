@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Target, Plus, Info } from 'lucide-react';
+import { CheckCircle2, Compass, Plus, Info } from 'lucide-react';
 
 /** Minimal model shape for the sidebar / widget (App maps full scenario models). */
 export type ModellingWidgetModel = {
@@ -14,7 +14,7 @@ export type ModellingWidgetUiBridge = {
   selectedModelId: string | null;
   onTogglePreview: (modelId: string) => void;
   financialGoalModelIds: readonly string[];
-  onAddToGoals: (modelId: string) => void;
+  onExploreModel: (modelId: string) => void;
   onOpenCreateModel: () => void;
   peerBenchmarkEnabled: boolean;
   onPeerBenchmarkChange: (enabled: boolean) => void;
@@ -30,7 +30,7 @@ export function SuggestedModellingWidget({ bridge }: SuggestedModellingWidgetPro
     selectedModelId,
     onTogglePreview,
     financialGoalModelIds,
-    onAddToGoals,
+    onExploreModel,
     onOpenCreateModel,
     peerBenchmarkEnabled,
     onPeerBenchmarkChange,
@@ -80,6 +80,11 @@ export function SuggestedModellingWidget({ bridge }: SuggestedModellingWidgetPro
                     Yours
                   </span>
                 )}
+                {financialGoalModelIds.includes(model.id) && (
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-800 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-[4px]">
+                    In goals
+                  </span>
+                )}
                 {selectedModelId === model.id && <CheckCircle2 className="w-4 h-4 text-[#8b5cf6]" />}
               </div>
             </div>
@@ -94,25 +99,11 @@ export function SuggestedModellingWidget({ bridge }: SuggestedModellingWidgetPro
               </button>
               <button
                 type="button"
-                disabled={financialGoalModelIds.includes(model.id)}
-                onClick={() => onAddToGoals(model.id)}
-                className={`flex-1 py-1.5 rounded-[6px] text-xs font-medium transition-colors flex items-center justify-center gap-1 border ${
-                  financialGoalModelIds.includes(model.id)
-                    ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-default'
-                    : 'bg-emerald-50 text-emerald-800 border-emerald-100 hover:bg-emerald-100'
-                }`}
+                onClick={() => onExploreModel(model.id)}
+                className="flex-1 py-1.5 rounded-[6px] text-xs font-medium transition-colors flex items-center justify-center gap-1 border bg-violet-50 text-violet-900 border-violet-100 hover:bg-violet-100"
               >
-                {financialGoalModelIds.includes(model.id) ? (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    In goals
-                  </>
-                ) : (
-                  <>
-                    <Target className="w-3.5 h-3.5" />
-                    Add to goals
-                  </>
-                )}
+                <Compass className="w-3.5 h-3.5" />
+                Explore
               </button>
             </div>
           </div>
@@ -133,7 +124,7 @@ export function SuggestedModellingWidget({ bridge }: SuggestedModellingWidgetPro
             <h4 className="text-sm font-semibold text-gray-900">How modelling works</h4>
             <p className="text-xs text-gray-600 mt-1 leading-relaxed">
               Create models or use starters below. Preview overlays scenarios on the charts; peer benchmarking adds a
-              comparison band. Add to goals sends a model to Financial Goals.
+              comparison band. Explore opens a scenario plan with results and a path to link the model to Financial Goals.
             </p>
           </div>
         </div>

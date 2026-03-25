@@ -1,44 +1,105 @@
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Brand palette — WCAG 2.1 AA approved pairings (spot-check with contrast checker):
+ * - #ffffff on #0070E0 (Ocean) — primary buttons, large text UI
+ * - #ffffff on #04304C (Mountain) — optional strong headers
+ * - #ffffff on #D74417 (Coral) — destructive fills (large text / buttons)
+ * - #17181C (Carbon) on #F7F5F5 (Bone) — body / page
+ * - #17181C (Carbon) on #ffffff — cards
+ * - #17181C (Carbon) on #A3DCFF (Sky) — selected row / sparse highlight
+ * - #17181C (Carbon) on #EEE0EA (Sand) — subdued chips/surfaces
+ * - #04304C on #F4A540 (Amber) — if Amber used as bg, prefer Mountain not white for text
+ * Use Emerald/Cobalt/Coral/Sky/Amber/Mountain sparingly for accents, charts, and semantic states.
+ */
+
 :root {
+  /* Raw brand (reference) */
+  --brand-mountain: #04304c;
+  --brand-ocean: #0070e0;
+  --brand-emerald: #018b7d;
+  --brand-coral: #d74417;
+  --brand-sand: #eee0ea;
+  --brand-carbon: #17181c;
+  --brand-cobalt: #0f478d;
+  --brand-sky: #a3dcff;
+  --brand-amber: #f4a540;
+  --brand-bone: #f7f5f5;
+
+  /* Motion (Polaris-like standard curve) */
+  --motion-duration-xs: 150ms;
+  --motion-duration-sm: 200ms;
+  --motion-duration-md: 280ms;
+  --motion-ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --motion-ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+  /* Typography */
   --font-size: 16px;
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
-  --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #030213;
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
-  --destructive: #d4183d;
+  --font-sans-stack: 'Satoshi', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+
+  /* Surfaces & text */
+  --surface-page: var(--brand-bone);
+  --surface-nav: #ffffff;
+  --surface-card: #ffffff;
+  --surface-subdued: color-mix(in srgb, var(--brand-sand) 45%, #ffffff);
+  --nav-border: color-mix(in srgb, var(--brand-carbon) 10%, transparent);
+  --nav-item-active-bg: color-mix(in srgb, var(--brand-sky) 32%, #ffffff);
+  --nav-item-hover-bg: color-mix(in srgb, var(--brand-carbon) 5%, transparent);
+  --text-primary: var(--brand-carbon);
+  --text-secondary: color-mix(in srgb, var(--brand-carbon) 62%, #ffffff);
+
+  /* Semantic UI (shadcn slots) */
+  --background: var(--surface-page);
+  --foreground: var(--text-primary);
+  --card: var(--surface-card);
+  --card-foreground: var(--text-primary);
+  --popover: #ffffff;
+  --popover-foreground: var(--text-primary);
+  --primary: var(--brand-ocean);
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface-subdued);
+  --secondary-foreground: var(--text-primary);
+  --muted: color-mix(in srgb, var(--brand-sand) 55%, #ffffff);
+  --muted-foreground: var(--text-secondary);
+  --accent: color-mix(in srgb, var(--brand-sky) 28%, #ffffff);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--brand-coral);
   --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
+  --border: color-mix(in srgb, var(--brand-carbon) 12%, transparent);
   --input: transparent;
-  --input-background: #f3f3f5;
+  --input-background: color-mix(in srgb, var(--brand-bone) 70%, #ffffff);
   --switch-background: #cbced4;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --ring: var(--brand-ocean);
+
+  /* Charts / data viz (Recharts can use fill="var(--chart-ocean)" etc.) */
+  --chart-ocean: #0070e0;
+  --chart-emerald: #018b7d;
+  --chart-cobalt: #0f478d;
+  --chart-coral: #d74417;
+  --chart-sky: #a3dcff;
+  --chart-mountain: #04304c;
+  --chart-scenario: var(--brand-cobalt);
+  --chart-peer: var(--brand-emerald);
+  --chart-grid: color-mix(in srgb, var(--brand-carbon) 8%, #ffffff);
+  --chart-tick: color-mix(in srgb, var(--brand-carbon) 48%, #ffffff);
+  --chart-1: var(--chart-ocean);
+  --chart-2: var(--chart-emerald);
+  --chart-3: var(--chart-cobalt);
+  --chart-4: var(--chart-coral);
+  --chart-5: color-mix(in srgb, var(--chart-sky) 85%, var(--brand-carbon));
+
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: #030213;
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: #ffffff;
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--brand-ocean);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--nav-item-active-bg);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--nav-border);
+  --sidebar-ring: var(--ring);
 }
 
 .dark {
@@ -61,8 +122,6 @@
   --border: oklch(0.269 0 0);
   --input: oklch(0.269 0 0);
   --ring: oklch(0.439 0 0);
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -79,6 +138,7 @@
 }
 
 @theme inline {
+  --font-sans: var(--font-sans-stack);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -105,6 +165,20 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-surface-page: var(--surface-page);
+  --color-surface-nav: var(--surface-nav);
+  --color-surface-subdued: var(--surface-subdued);
+  --color-nav-border: var(--nav-border);
+  --color-nav-active: var(--nav-item-active-bg);
+  --color-nav-hover: var(--nav-item-hover-bg);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-chart-ocean: var(--chart-ocean);
+  --color-chart-emerald: var(--chart-emerald);
+  --color-chart-cobalt: var(--chart-cobalt);
+  --color-chart-coral: var(--chart-coral);
+  --color-chart-sky: var(--chart-sky);
+  --color-chart-mountain: var(--chart-mountain);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -125,13 +199,17 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: var(--font-sans-stack);
   }
 
-  /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
-  */
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --motion-duration-xs: 0.01ms;
+      --motion-duration-sm: 0.01ms;
+      --motion-duration-md: 0.01ms;
+    }
+  }
 
   html {
     font-size: var(--font-size);

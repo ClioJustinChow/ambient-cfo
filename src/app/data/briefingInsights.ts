@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { AlertTriangle, TrendingUp, CreditCard } from 'lucide-react';
+import { AlertTriangle, TrendingUp, CreditCard, Wallet } from 'lucide-react';
 import type { BriefingInsightId } from './briefingPanelContent';
 
 export type BriefingInsightListItem = {
@@ -10,14 +10,28 @@ export type BriefingInsightListItem = {
   icon: LucideIcon;
   iconBg: string;
   iconColor: string;
+  /** Shown as subline on Today's to do rows */
+  todaySourceLabel: string;
 };
 
-/** Single source for This Week's Briefing + Notifications */
+/** Single source for This Week's Briefing + Notifications (first item = default expanded + priority chrome) */
 export const BRIEFING_INSIGHT_ITEMS: BriefingInsightListItem[] = [
+  {
+    id: 'insight-4',
+    title: 'From Alert to Action: The Cash Flow Scenario',
+    todaySourceLabel: 'Revenue Forecasting Skill',
+    time: 'Just now',
+    description:
+      'Firm Intelligence detected a projected 47-day operating cash shortfall—not just a red indicator. You get a Cash Flow Action Plan: collection reminders on overdue invoices, one-click drafts for bill-ready WIP, an optional Clio Capital bridge before payroll, and confirmation that your 60-day reserve goal can hold through Q2 if you execute.',
+    icon: Wallet,
+    iconBg: 'bg-sky-100',
+    iconColor: 'text-sky-800',
+  },
   {
     id: 'insight-1',
     title: 'High Collections Risk Detected',
-    time: 'Just now',
+    todaySourceLabel: 'Collections Agent',
+    time: '8 min ago',
     description:
       'Based on current matter activity and historical billing patterns, there is a $45k exposure risk for the pending invoices with Smith & Associates. Resolving this within 5 days is required to maintain your Q3 cash flow targets.',
     icon: AlertTriangle,
@@ -27,6 +41,7 @@ export const BRIEFING_INSIGHT_ITEMS: BriefingInsightListItem[] = [
   {
     id: 'insight-2',
     title: 'Q3 Revenue Target Trajectory',
+    todaySourceLabel: 'Revenue Forecasting Skill',
     time: '2 hours ago',
     description:
       'You are currently trending 15% above the projected baseline. The recent payment of $120k from Johnson Corp has pushed you closer to your Q3 revenue target.',
@@ -37,6 +52,7 @@ export const BRIEFING_INSIGHT_ITEMS: BriefingInsightListItem[] = [
   {
     id: 'insight-3',
     title: 'Upcoming Software Renewals',
+    todaySourceLabel: 'Matching Agent',
     time: 'Yesterday',
     description:
       'You have 3 annual software subscriptions renewing next week totaling $12,500. Consider reviewing seat utilization to optimize these upcoming expenses.',
@@ -45,3 +61,6 @@ export const BRIEFING_INSIGHT_ITEMS: BriefingInsightListItem[] = [
     iconColor: 'text-blue-700',
   },
 ];
+
+/** Fallback when resolving an unknown insight id (matches first briefing in the list). */
+export const BRIEFING_DEFAULT_INSIGHT_ID: BriefingInsightId = BRIEFING_INSIGHT_ITEMS[0]!.id;

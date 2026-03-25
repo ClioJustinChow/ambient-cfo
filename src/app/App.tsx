@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster, toast } from 'sonner';
 import { 
   LayoutDashboard, 
@@ -45,7 +45,6 @@ import {
   Share2,
   Trash2,
   Loader2,
-  Inbox,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -58,23 +57,41 @@ import {
 } from './components/ui/dialog';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
+import { cn } from './components/ui/utils';
 import { DashboardCustomizer } from './components/DashboardCustomizer';
 import { BriefingSidePanel, type BriefingPanelState } from './components/BriefingSidePanel';
-import { InboxPage } from './components/InboxPage';
 import { FloatingChatBar } from './components/clio-teammate/FloatingChatBar';
 import { SpecializedTeammateRail } from './components/clio-teammate/SpecializedTeammateRail';
-import type { AiActivityEntry } from './types/inbox';
-import { isBriefingInsightId, BRIEFING_ACTION_HEADLINE, type BriefingInsightId } from './data/briefingPanelContent';
-import { BRIEFING_INSIGHT_ITEMS } from './data/briefingInsights';
-import { AMBIENT_ACTIONS_HISTORY } from './data/ambientActionsHistory';
+import { isBriefingInsightId, type BriefingInsightId } from './data/briefingPanelContent';
+import { buildModellingExplorePanelContent } from './data/modellingExplorePanel';
+import { BRIEFING_DEFAULT_INSIGHT_ID } from './data/briefingInsights';
+import { FIRM_GOAL_DEFINITIONS, FIRM_INTELLIGENCE_GOALS_FILTER_NARRATIVE } from './data/firmGoals';
 import { ReportDetail } from './components/ReportDetail';
+import {
+  DEFAULT_PROFIT_LOSS_VIEW_STATE,
+  type ProfitLossViewState,
+} from './data/profitLossReportModel';
+import {
+  DEFAULT_STANDARD_REPORT_VIEW_STATE,
+  type StandardReportViewState,
+} from './data/standardReportModel';
+import { interpretProfitLossQuery } from './data/profitLossNlStub';
+import { HomeDashboard } from './components/HomeDashboard';
 import {
   FinancePageWidgetGrid,
   FinancePageSidebarWidgetStack,
   DEFAULT_FP_DEFAULT_WIDGETS,
   DEFAULT_FP_DEFAULT_SIDEBAR_WIDGETS,
+  DEFAULT_FP_FINANCIAL_HEALTH_WIDGETS,
+  DEFAULT_FP_FINANCIAL_HEALTH_SIDEBAR_WIDGETS,
+  DEFAULT_DASHBOARD_FINANCIAL_PINS,
+  FP_FINANCIAL_HEALTH_ID,
   DEFAULT_NEW_PAGE_WIDGETS,
   DEFAULT_NEW_PAGE_SIDEBAR_WIDGETS,
+  defaultLayoutSizeForWidgetId,
+  getFinanceWidgetPinKey,
+  isWidgetPinDisabled,
+  type DashboardFinancialPin,
   type FinancePageWidget,
   type MainGridColumns,
   type ModellingWidgetUiBridge,
@@ -95,10 +112,36 @@ import {
   USER_ROLE,
   FIRM_STORY,
   FINANCE_DEFAULT_PAGE_TITLE,
+  USER_FIRST_NAME,
 } from './data/prototypePersona';
 import type { DigitalTwinScenarioId } from './components/DigitalTwinWidget';
 
 /** Custom dashboard pages under Finances (id, title, main + sidebar widget layout). */
+const NAV_RAIL_WIDTH_STORAGE_KEY = 'ambient-cfo-nav-rail-width-px';
+const NAV_RAIL_WIDTH_MIN = 176;
+const NAV_RAIL_WIDTH_MAX = 400;
+const NAV_RAIL_WIDTH_DEFAULT = 239;
+const NAV_RAIL_COLLAPSED_PX = 72;
+/** When dragging narrower while expanded, snap to collapsed below this width (px from left edge). */
+const NAV_RAIL_SNAP_COLLAPSE_IF_BELOW = 110;
+/** When dragging wider while collapsed, snap to expanded above this (hysteresis vs collapse). */
+const NAV_RAIL_SNAP_EXPAND_IF_ABOVE = 132;
+
+function clampNavRailWidth(px: number): number {
+  return Math.min(NAV_RAIL_WIDTH_MAX, Math.max(NAV_RAIL_WIDTH_MIN, Math.round(px)));
+}
+
+function readStoredNavRailWidth(): number {
+  if (typeof window === 'undefined') return NAV_RAIL_WIDTH_DEFAULT;
+  try {
+    const raw = localStorage.getItem(NAV_RAIL_WIDTH_STORAGE_KEY);
+    if (raw == null) return NAV_RAIL_WIDTH_DEFAULT;
+    return clampNavRailWidth(parseInt(raw, 10) || NAV_RAIL_WIDTH_DEFAULT);
+  } catch {
+    return NAV_RAIL_WIDTH_DEFAULT;
+  }
+}
+
 type FinanceCustomPage = {
   id: string;
   title: string;
@@ -164,7 +207,8 @@ const defaultFinancialModels: FinancialScenarioModel[] = [
       insight: "Based on your current spending patterns and revenue pipeline, your runway is trending downward. You're 16 days short of your Q1 goal of 90 days.",
       confidence: "High (95%) - Based on 12 months of data"
     },
-    goalImpactAnalysis: "Hiring 2 associates will temporarily decrease your cash runway below the 18-month target. However, it is projected to increase billable capacity by 20% starting Q3, aligning with your Q3 Revenue Target of $500k.",
+    goalImpactAnalysis:
+      'Hiring 2 associates increases near-term burn and pressures your 60-day operating cash reserve. Offsetting collections and billing cadence will matter for staying on pace toward +15% net revenue YoY and the 28-day days-to-collect target.',
     recommendedActions: [
       { text: "Review upcoming Q2 client retainers before finalizing offers.", type: 'navigate', target: 'Funds In' },
       { text: "Consider staggered start dates (May and July) to smooth out the cash impact.", type: 'action', actionName: 'Auto-schedule start dates' }
@@ -191,7 +235,8 @@ const defaultFinancialModels: FinancialScenarioModel[] = [
       insight: "Trimming software subscriptions and discretionary travel by 5% extends your baseline runway by nearly 2 months by year-end, comfortably keeping you above target.",
       confidence: "Medium (75%) - Subject to variable travel costs"
     },
-    goalImpactAnalysis: "This cost-saving measure strengthens your Annual Cash Flow Reserve, ensuring you maintain more than 3 months of operating expenses across the entire fiscal year.",
+    goalImpactAnalysis:
+      'Lowering overhead extends your operating cash runway and supports the 60-day minimum reserve goal, while preserving capacity to invest in revenue growth toward the +15% YoY target.',
     recommendedActions: [
       { text: "Audit current SaaS subscriptions for redundant tools by end of March.", type: 'action', actionName: 'Start SaaS audit' },
       { text: "Implement a revised firm-wide travel policy starting April 1st.", type: 'navigate', target: 'Payroll' }
@@ -209,7 +254,7 @@ const defaultFinancialModels: FinancialScenarioModel[] = [
       confidence: 'Medium (80%) — assumes proportional payroll load; excludes one-time bonuses',
     },
     goalImpactAnalysis:
-      'Higher compensation improves retention and hiring competitiveness but pulls forward cash needs. Pair with billing cadence and matter mix so runway stays aligned with your 18-month operating target.',
+      'Higher compensation improves retention but lifts burn—tightening progress toward the 60-day operating reserve unless collections improve toward the 28-day days-to-collect goal. Net revenue growth assumptions should be re-checked.',
     recommendedActions: [
       { text: 'Model phased increases by level or office before committing firm-wide.', type: 'action', actionName: 'Open phased comp planner' },
       { text: 'Review Payroll and benefits load vs billable headcount in Funds Out.', type: 'navigate', target: 'Funds Out' },
@@ -304,15 +349,15 @@ function ambientCfoInterpretScenario(scenarioSummary: string, framework: ModelFr
   const shortScenario =
     scenarioSummary.length > 140 ? `${scenarioSummary.slice(0, 140)}…` : scenarioSummary;
 
-  const cardDescription = `Ambient CFO · ${themePhrase}`;
+  const cardDescription = `Firm Intelligence · ${themePhrase}`;
 
-  const insight = `Ambient CFO read your scenario and combined it with the ${framework} framework. Detected themes: ${themePhrase}. That maps to a modeled burn path of ${burnDeltaPercent > 0 ? '+' : ''}${burnDeltaPercent}% vs baseline on the strategic charts. Your description: "${shortScenario}"`;
+  const insight = `Firm Intelligence read your scenario and combined it with the ${framework} framework. Detected themes: ${themePhrase}. That maps to a modeled burn path of ${burnDeltaPercent > 0 ? '+' : ''}${burnDeltaPercent}% vs baseline on the strategic charts. Your description: "${shortScenario}"`;
 
   const goalImpact = `This model translates your wording into cash, burn, and runway stress. ${burnDeltaPercent > 0 ? 'Net spend pressure tightens runway—pair hiring or growth moves with collections and timing.' : 'Net spend relief extends runway—sanity-check which cost levers in your text are committed vs aspirational.'}`;
 
   const extraAction = themes[0]
     ? `Double-check assumptions around "${themes[0]}" with finance before you rely on this overlay.`
-    : 'Add more specifics (hiring, cuts, timing) so Ambient CFO can tighten the scenario next time.';
+    : 'Add more specifics (hiring, cuts, timing) so Firm Intelligence can tighten the scenario next time.';
 
   return {
     burnDeltaPercent,
@@ -389,19 +434,55 @@ function createUserFinancialModel(input: {
 
 type DashboardPresence = 'collaborating' | 'viewing' | 'idle';
 
-/** People with access to the strategic roadmap + mock live presence */
-const STRATEGIC_DASHBOARD_ACCESS: {
+type FinancePageAvatarPerson = {
   id: string;
   name: string;
   initials: string;
   avatarClass: string;
   presence: DashboardPresence;
-}[] = [
-  { id: '1', name: USER_FULL_NAME, initials: USER_INITIALS, avatarClass: 'bg-emerald-600 text-white', presence: 'collaborating' },
-  { id: '2', name: 'Michael Torres', initials: 'MT', avatarClass: 'bg-sky-600 text-white', presence: 'viewing' },
-  { id: '3', name: 'Elena Vasquez', initials: 'EV', avatarClass: 'bg-violet-600 text-white', presence: 'viewing' },
-  { id: '4', name: 'David Okonkwo', initials: 'DO', avatarClass: 'bg-slate-500 text-white', presence: 'idle' },
-];
+};
+
+/** Known firm members for Finances header avatars (key = lowercase email) */
+const FIRM_DISPLAY_BY_EMAIL: Record<string, { name: string; initials: string; avatarClass: string }> = {
+  [USER_EMAIL.toLowerCase()]: {
+    name: USER_FULL_NAME,
+    initials: USER_INITIALS,
+    avatarClass: 'bg-emerald-600 text-white',
+  },
+  'm.torres@summitlegal.com': {
+    name: 'Michael Torres',
+    initials: 'MT',
+    avatarClass: 'bg-sky-600 text-white',
+  },
+  'finance@summitlegal.com': {
+    name: 'Finance Team',
+    initials: 'FT',
+    avatarClass: 'bg-amber-600 text-white',
+  },
+  'controller@summitlegal.com': {
+    name: 'Alex Chen',
+    initials: 'AC',
+    avatarClass: 'bg-violet-600 text-white',
+  },
+};
+
+/**
+ * Prototype “who is on this page now” — only collaborating/viewing appear in the header.
+ * Keys are lowercase email. Omitted / unknown invitees default to viewing so new shares show up.
+ */
+const MOCK_PRESENCE_BY_EMAIL: Record<string, DashboardPresence> = {
+  [USER_EMAIL.toLowerCase()]: 'collaborating',
+  'm.torres@summitlegal.com': 'viewing',
+  'finance@summitlegal.com': 'idle',
+  'controller@summitlegal.com': 'viewing',
+};
+
+function initialsFromEmail(email: string): string {
+  const local = email.split('@')[0] ?? '?';
+  const parts = local.split(/[._-]+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase() || '??';
+  return local.slice(0, 2).toUpperCase() || '??';
+}
 
 function strategicDashboardPresenceLabel(p: DashboardPresence) {
   if (p === 'collaborating') return 'Collaborating on this dashboard';
@@ -423,14 +504,18 @@ type NavItem = {
 };
 
 export default function App() {
-  const [activePage, setActivePage] = useState('Dashboard');
+  const [activePage, setActivePage] = useState(FP_FINANCIAL_HEALTH_ID);
   const [reportsViewMode, setReportsViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedReport, setSelectedReport] = useState<string | null>(null);
+  const [profitLossViewState, setProfitLossViewState] = useState<ProfitLossViewState>(
+    DEFAULT_PROFIT_LOSS_VIEW_STATE,
+  );
+  const [standardReportViewState, setStandardReportViewState] = useState<StandardReportViewState>(
+    DEFAULT_STANDARD_REPORT_VIEW_STATE,
+  );
   const [briefingPanel, setBriefingPanel] = useState<BriefingPanelState>(null);
   /** Cumulative briefing plans executed via Take Action → updates charts + widget data */
   const [executedBriefingPlans, setExecutedBriefingPlans] = useState<BriefingInsightId[]>([]);
-  const [dismissedAmbientHistoryIds, setDismissedAmbientHistoryIds] = useState<string[]>([]);
-  const [aiActivityLog, setAiActivityLog] = useState<AiActivityEntry[]>([]);
   const [showMorePlans, setShowMorePlans] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [teammateRailOpen, setTeammateRailOpen] = useState(false);
@@ -451,6 +536,14 @@ export default function App() {
   const [chatHistory, setChatHistory] = useState<{role: 'user' | 'ai', content: string}[]>([]);
   const [financeCustomPages, setFinanceCustomPages] = useState<FinanceCustomPage[]>([
     {
+      id: FP_FINANCIAL_HEALTH_ID,
+      title: 'Financial Health Overview',
+      widgets: DEFAULT_FP_FINANCIAL_HEALTH_WIDGETS,
+      sidebarWidgets: DEFAULT_FP_FINANCIAL_HEALTH_SIDEBAR_WIDGETS,
+      mainGridColumns: 1,
+      showSidebar: false,
+    },
+    {
       id: 'fp_default',
       title: FINANCE_DEFAULT_PAGE_TITLE,
       widgets: DEFAULT_FP_DEFAULT_WIDGETS,
@@ -459,6 +552,9 @@ export default function App() {
       showSidebar: true,
     },
   ]);
+  const [dashboardFinancialPins, setDashboardFinancialPins] = useState<DashboardFinancialPin[]>(
+    DEFAULT_DASHBOARD_FINANCIAL_PINS,
+  );
   type CustomizerContext = { mode: 'create' } | { mode: 'edit'; pageId: string };
   const [customizerContext, setCustomizerContext] = useState<CustomizerContext | null>(null);
   const [customizerMountId, setCustomizerMountId] = useState(0);
@@ -469,32 +565,52 @@ export default function App() {
   };
   const isCustomizing = customizerContext !== null;
 
-  const pushAiActivity = React.useCallback((entry: Omit<AiActivityEntry, 'id' | 'at'>) => {
-    setAiActivityLog((prev) => {
-      const row: AiActivityEntry = {
-        id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-        at: Date.now(),
-        ...entry,
-      };
-      return [row, ...prev].slice(0, 50);
-    });
-  }, []);
-
-  const notificationBadgeCount = React.useMemo(() => {
-    const briefingPending = BRIEFING_INSIGHT_ITEMS.filter((i) => !executedBriefingPlans.includes(i.id)).length;
-    const historyPending = AMBIENT_ACTIONS_HISTORY.filter((n) => !dismissedAmbientHistoryIds.includes(n.id)).length;
-    return briefingPending + historyPending;
-  }, [executedBriefingPlans, dismissedAmbientHistoryIds]);
-
-  /** Total rows in Inbox list (briefing + history + activity) — matches InboxPage merged list */
-  const inboxListItemCount = React.useMemo(() => {
-    const briefingCount = BRIEFING_INSIGHT_ITEMS.filter((i) => !executedBriefingPlans.includes(i.id)).length;
-    const historyCount = AMBIENT_ACTIONS_HISTORY.filter((n) => !dismissedAmbientHistoryIds.includes(n.id)).length;
-    return briefingCount + historyCount + aiActivityLog.length;
-  }, [executedBriefingPlans, dismissedAmbientHistoryIds, aiActivityLog]);
-
   const activeFinancePage = financeCustomPages.find((p) => p.id === activePage);
   const isFinanceCustomPageView = Boolean(activeFinancePage);
+
+  const financePagePinnedKeys = React.useMemo(
+    () => new Set(dashboardFinancialPins.map((p) => getFinanceWidgetPinKey(p))),
+    [dashboardFinancialPins],
+  );
+
+  const handlePinToDashboardFinancial = React.useCallback(
+    (row: FinancePageWidget) => {
+      if (isWidgetPinDisabled(row.widgetId)) return;
+      setDashboardFinancialPins((prev) => {
+        const pk = getFinanceWidgetPinKey(row);
+        const idx = prev.findIndex((p) => getFinanceWidgetPinKey(p) === pk);
+        if (idx >= 0) {
+          return prev.map((p, i) =>
+            i === idx
+              ? {
+                  ...p,
+                  sourcePageId: activePage,
+                  layoutSize:
+                    row.layoutSize ?? p.layoutSize ?? defaultLayoutSizeForWidgetId(row.widgetId),
+                  reportName: row.reportName ?? p.reportName,
+                  reportView: row.reportView ?? p.reportView,
+                }
+              : p,
+          );
+        }
+        const instanceId = `dash_${pk.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        const pin: DashboardFinancialPin = {
+          instanceId,
+          widgetId: row.widgetId,
+          layoutSize: row.layoutSize ?? defaultLayoutSizeForWidgetId(row.widgetId),
+          reportName: row.reportName,
+          reportView: row.reportView,
+          sourcePageId: activePage,
+        };
+        return [...prev, pin];
+      });
+    },
+    [activePage],
+  );
+
+  const handleUnpinDashboardFinancial = React.useCallback((pinKey: string) => {
+    setDashboardFinancialPins((prev) => prev.filter((p) => getFinanceWidgetPinKey(p) !== pinKey));
+  }, []);
 
   const allFinancialModels = React.useMemo(
     () => [...defaultFinancialModels, ...userFinancialModels],
@@ -565,15 +681,34 @@ export default function App() {
       }
       setFinancialGoalModelIds((prev) => [...prev, modelId]);
       toast.success('Model added to Financial Goals');
-      const m = allFinancialModels.find((x) => x.id === modelId);
-      pushAiActivity({
-        kind: 'model_added_to_goals',
-        title: 'Added model to Financial Goals',
-        detail: m?.name ?? 'Scenario model',
-      });
       setActivePage('Financial Goals');
     },
-    [financialGoalModelIds, allFinancialModels, pushAiActivity],
+    [financialGoalModelIds, allFinancialModels],
+  );
+
+  const openModellingExplorePanel = React.useCallback((modelId: string) => {
+    setShowMorePlans(false);
+    setHasExecuted(false);
+    setIsExecuting(false);
+    setBriefingPanel({ mode: 'modellingExplore', modelId });
+  }, []);
+
+  const modellingExploreContent = React.useMemo(() => {
+    if (briefingPanel?.mode !== 'modellingExplore') return null;
+    const m = allFinancialModels.find((x) => x.id === briefingPanel.modelId);
+    if (!m) return null;
+    return buildModellingExplorePanelContent(m, allFinancialModels);
+  }, [briefingPanel, allFinancialModels]);
+
+  React.useEffect(() => {
+    if (briefingPanel?.mode === 'modellingExplore' && !modellingExploreContent) {
+      setBriefingPanel(null);
+    }
+  }, [briefingPanel, modellingExploreContent]);
+
+  const modellingExploreModelAlreadyInGoals = Boolean(
+    briefingPanel?.mode === 'modellingExplore' &&
+      financialGoalModelIds.includes(briefingPanel.modelId),
   );
 
   const modellingUiBridge = React.useMemo(
@@ -587,12 +722,12 @@ export default function App() {
       selectedModelId,
       onTogglePreview: (id) => setSelectedModelId((p) => (p === id ? null : id)),
       financialGoalModelIds,
-      onAddToGoals: addModelToFinancialGoals,
+      onExploreModel: openModellingExplorePanel,
       onOpenCreateModel: () => setCreateModelDialogOpen(true),
       peerBenchmarkEnabled,
       onPeerBenchmarkChange: setPeerBenchmarkEnabled,
     }),
-    [allFinancialModels, selectedModelId, financialGoalModelIds, addModelToFinancialGoals, peerBenchmarkEnabled],
+    [allFinancialModels, selectedModelId, financialGoalModelIds, openModellingExplorePanel, peerBenchmarkEnabled],
   );
 
   const removeModelFromFinancialGoals = (modelId: string) => {
@@ -601,6 +736,12 @@ export default function App() {
   };
 
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
+  const [navRailWidthPx, setNavRailWidthPx] = useState(readStoredNavRailWidth);
+  const [isResizingNavRail, setIsResizingNavRail] = useState(false);
+  const isNavCollapsedRef = useRef(false);
+  isNavCollapsedRef.current = isNavCollapsed;
+  const teammateRailWasOpenRef = useRef(false);
+  const navCollapsedBeforeTeammateRailRef = useRef(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareEmailInput, setShareEmailInput] = useState('');
@@ -614,6 +755,45 @@ export default function App() {
     { id: 'shared-3', email: 'controller@summitlegal.com', permission: 'viewer' },
   ]);
 
+  /** Finances page header: you + people shared on this dashboard, only if “active” (not idle). */
+  const financePageHeaderAvatars = React.useMemo((): FinancePageAvatarPerson[] => {
+    const ownerEmail = USER_EMAIL.toLowerCase();
+    const candidateEmails: string[] = [ownerEmail];
+    for (const u of sharedDashboardUsers) {
+      candidateEmails.push(u.email.trim().toLowerCase());
+    }
+    const seen = new Set<string>();
+    const rows: FinancePageAvatarPerson[] = [];
+    for (const email of candidateEmails) {
+      if (!email || seen.has(email)) continue;
+      seen.add(email);
+      const presence =
+        MOCK_PRESENCE_BY_EMAIL[email] ?? (email === ownerEmail ? 'collaborating' : 'viewing');
+      if (presence === 'idle') continue;
+      const meta = FIRM_DISPLAY_BY_EMAIL[email] ?? {
+        name: email,
+        initials: initialsFromEmail(email),
+        avatarClass: 'bg-slate-500 text-white',
+      };
+      rows.push({
+        id: email,
+        name: meta.name,
+        initials: meta.initials,
+        avatarClass: meta.avatarClass,
+        presence,
+      });
+    }
+    const orderPresence = (p: DashboardPresence) => (p === 'collaborating' ? 0 : 1);
+    rows.sort((a, b) => {
+      if (a.id === ownerEmail && b.id !== ownerEmail) return -1;
+      if (b.id === ownerEmail && a.id !== ownerEmail) return 1;
+      const d = orderPresence(a.presence) - orderPresence(b.presence);
+      if (d !== 0) return d;
+      return a.name.localeCompare(b.name);
+    });
+    return rows;
+  }, [sharedDashboardUsers]);
+
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 768px)');
     const onChange = () => {
@@ -621,6 +801,67 @@ export default function App() {
     };
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  /** Docked teammate rail: collapse left nav for space; restore prior collapse state when closed. */
+  useEffect(() => {
+    if (teammateRailOpen) {
+      if (!teammateRailWasOpenRef.current) {
+        navCollapsedBeforeTeammateRailRef.current = isNavCollapsedRef.current;
+        setIsNavCollapsed(true);
+      }
+      teammateRailWasOpenRef.current = true;
+    } else {
+      if (teammateRailWasOpenRef.current) {
+        setIsNavCollapsed(navCollapsedBeforeTeammateRailRef.current);
+      }
+      teammateRailWasOpenRef.current = false;
+    }
+  }, [teammateRailOpen]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(NAV_RAIL_WIDTH_STORAGE_KEY, String(navRailWidthPx));
+    } catch {
+      /* ignore quota */
+    }
+  }, [navRailWidthPx]);
+
+  useEffect(() => {
+    if (!isResizingNavRail) return;
+    const onMove = (e: MouseEvent) => {
+      const raw = e.clientX;
+      if (isNavCollapsedRef.current) {
+        if (raw > NAV_RAIL_SNAP_EXPAND_IF_ABOVE) {
+          isNavCollapsedRef.current = false;
+          setIsNavCollapsed(false);
+          setNavRailWidthPx(clampNavRailWidth(raw));
+        }
+      } else if (raw < NAV_RAIL_SNAP_COLLAPSE_IF_BELOW) {
+        isNavCollapsedRef.current = true;
+        setIsNavCollapsed(true);
+      } else {
+        setNavRailWidthPx(clampNavRailWidth(raw));
+      }
+    };
+    const onUp = () => {
+      setIsResizingNavRail(false);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizingNavRail]);
+
+  const startNavRailResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingNavRail(true);
   }, []);
 
   const closeMobileNav = () => {
@@ -711,19 +952,25 @@ export default function App() {
     [availableReports],
   );
 
-  const brandColor = "#0069D1";
+  const brandColor = 'var(--primary)';
+
+  React.useEffect(() => {
+    if (selectedReport !== 'Profit and Loss') {
+      setProfitLossViewState(DEFAULT_PROFIT_LOSS_VIEW_STATE);
+    }
+  }, [selectedReport]);
+
+  React.useEffect(() => {
+    if (!selectedReport) {
+      setStandardReportViewState(DEFAULT_STANDARD_REPORT_VIEW_STATE);
+    }
+  }, [selectedReport]);
 
   const handleChatSubmit = (query?: string) => {
     const textToSubmit = query || chatInput;
     if (!textToSubmit.trim()) return;
 
     setTeammateRailOpen(true);
-
-    pushAiActivity({
-      kind: 'chat_submitted',
-      title: 'Ambient CFO query',
-      detail: textToSubmit.length > 100 ? `${textToSubmit.slice(0, 100)}…` : textToSubmit,
-    });
 
     const newUserMsg = { role: 'user' as const, content: textToSubmit };
     setChatHistory(prev => [...prev, newUserMsg]);
@@ -733,10 +980,28 @@ export default function App() {
     const loadingMsgId = Date.now().toString();
     setChatHistory(prev => [...prev, { role: 'ai', content: '...', id: loadingMsgId } as any]);
 
+    // P&L natural-language → filters + navigate (any page / Reports grid; was gated on already-open P&L only)
+    const nl = interpretProfitLossQuery(textToSubmit, profitLossViewState);
+    if (nl.matched) {
+      setActivePage('Reports');
+      setSelectedReport('Profit and Loss');
+      setProfitLossViewState(nl.nextState);
+      window.setTimeout(() => {
+        setChatHistory((prev) =>
+          prev.map((msg) =>
+            (msg as { id?: string }).id === loadingMsgId
+              ? { role: 'ai' as const, content: nl.assistantMessage }
+              : msg,
+          ),
+        );
+      }, 450);
+      return;
+    }
+
     // Mock AI response delay
     setTimeout(() => {
       const lowerQuery = textToSubmit.toLowerCase();
-      
+
       // Heuristic to detect if user is asking for a new report
       if (lowerQuery.includes('report') && (lowerQuery.includes('create') || lowerQuery.includes('generate') || lowerQuery.includes('build'))) {
         // Extract a sensible name or fallback to "Runway Analysis" for the prompt's example
@@ -820,12 +1085,7 @@ export default function App() {
       setNewModelScenario('');
       setNewModelFramework('Default');
       setIsCreateModelProcessing(false);
-      toast.success('Ambient CFO built your scenario model — Preview or add it to Financial Goals');
-      pushAiActivity({
-        kind: 'model_created',
-        title: 'Built scenario model',
-        detail: name,
-      });
+      toast.success('Firm Intelligence built your scenario model — Preview or Explore to review the plan');
     }, delayMs);
   };
 
@@ -835,6 +1095,7 @@ export default function App() {
     "Which clients have the oldest A/R?",
     "Model hiring 2 new associates",
     "What was last month's profit margin?",
+    "What does my payroll look like in comparison to last year?",
     "Digital Twin: what if two senior associates leave—how does runway change?",
     "Digital Twin: model a 10% billing rate increase in Real Estate",
   ];
@@ -846,7 +1107,6 @@ export default function App() {
   // Sidebar Navigation Items matching the provided reference image
   const navItems = React.useMemo((): NavItem[] => [
       { name: 'Dashboard', icon: LayoutDashboard },
-      { name: 'Inbox', icon: Inbox },
       { name: 'Transactions', icon: CreditCard },
       { name: 'Funds In', icon: ArrowDownToLine },
       { name: 'Funds Out', icon: ArrowUpFromLine },
@@ -871,8 +1131,32 @@ export default function App() {
     [financeCustomPages],
   );
 
+  const handleModellingSelectAlternative = React.useCallback((modelId: string) => {
+    setShowMorePlans(false);
+    setSelectedModelId(modelId);
+    setBriefingPanel({ mode: 'modellingExplore', modelId });
+  }, []);
+
+  const handleModellingExecute = React.useCallback(() => {
+    const panel = briefingPanel;
+    if (panel?.mode !== 'modellingExplore') return;
+    const modelId = panel.modelId;
+    if (financialGoalModelIds.includes(modelId)) return;
+    setIsExecuting(true);
+    window.setTimeout(() => {
+      setIsExecuting(false);
+      setHasExecuted(true);
+      addModelToFinancialGoals(modelId);
+      window.setTimeout(() => {
+        setBriefingPanel(null);
+        setHasExecuted(false);
+      }, 1500);
+    }, 2000);
+  }, [briefingPanel, financialGoalModelIds, addModelToFinancialGoals]);
+
   const handleExecute = React.useCallback(() => {
     const panel = briefingPanel;
+    if (panel?.mode === 'modellingExplore') return;
     const insightToApply =
       panel?.mode === 'takeAction' && isBriefingInsightId(panel.insightId) ? panel.insightId : null;
     setIsExecuting(true);
@@ -884,21 +1168,16 @@ export default function App() {
           prev.includes(insightToApply) ? prev : [...prev, insightToApply],
         );
         toast.success('Plan applied — your dashboards now reflect this change.');
-        pushAiActivity({
-          kind: 'briefing_plan_executed',
-          title: 'Executed suggested action',
-          detail: BRIEFING_ACTION_HEADLINE[insightToApply],
-        });
       }
       window.setTimeout(() => {
         setBriefingPanel(null);
         setHasExecuted(false);
       }, 1500);
     }, 2000);
-  }, [briefingPanel, pushAiActivity]);
+  }, [briefingPanel]);
 
   const resolveBriefingInsightId = (id: string): BriefingInsightId =>
-    isBriefingInsightId(id) ? id : 'insight-1';
+    isBriefingInsightId(id) ? id : BRIEFING_DEFAULT_INSIGHT_ID;
 
   const globalSearchResults = React.useMemo(() => {
     if (!chatInput.trim()) return [];
@@ -963,7 +1242,7 @@ export default function App() {
   }, [chatInput, availableReports, navItems]);
 
   return (
-    <div className="flex h-screen bg-[#F9FAFB] font-sans text-gray-900 overflow-hidden">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden">
       <Toaster position="bottom-right" richColors />
 
       {/* Mobile: open nav from menu; desktop: sidebar always visible */}
@@ -978,7 +1257,7 @@ export default function App() {
 
       <button
         type="button"
-        className="md:hidden fixed top-3 left-3 z-20 flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 shadow-sm hover:bg-gray-50"
+        className="md:hidden fixed top-3 left-3 z-20 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-sm hover:bg-muted transition-colors duration-[var(--motion-duration-sm)]"
         aria-label="Open menu"
         onClick={() => {
           setIsNavCollapsed(false);
@@ -990,28 +1269,43 @@ export default function App() {
       
       {/* LEFT NAVIGATION SIDEBAR — was hidden below md; now drawer on mobile */}
       <aside
-        className={`bg-white border-r border-[#e5e7eb] flex-col shrink-0 transition-all duration-300 relative
+        className={`bg-[var(--surface-nav)] border-r border-[var(--nav-border)] flex-col shrink-0 relative max-md:max-w-[calc(100vw-2rem)]
           fixed inset-y-0 left-0 z-40 md:relative md:z-10 md:translate-x-0
           ${mobileNavOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full'}
-          md:flex md:shadow-none
-          ${isNavCollapsed ? 'w-[72px]' : 'w-[239px]'}`}
+          md:flex md:shadow-none md:max-w-none`}
+        style={{
+          width: isNavCollapsed ? NAV_RAIL_COLLAPSED_PX : navRailWidthPx,
+          transition: isResizingNavRail
+            ? undefined
+            : `width var(--motion-duration-md) var(--motion-ease-standard)`,
+        }}
       >
-        
+        {/* Drag to resize; drag past threshold collapses / expands (desktop) */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={isNavCollapsed ? 'Drag right to expand navigation' : 'Drag to resize navigation'}
+          title={isNavCollapsed ? 'Drag right to expand' : 'Drag to resize; drag left to collapse'}
+            className="hidden md:block absolute top-0 right-0 z-[60] w-2 -mr-1 h-full cursor-col-resize touch-none hover:bg-primary/10 active:bg-primary/15 motion-reduce:transition-none"
+          onMouseDown={startNavRailResize}
+        />
+
         {/* Collapse Toggle (desktop only — mobile uses full labels) */}
         <button 
+          type="button"
           onClick={() => setIsNavCollapsed(!isNavCollapsed)}
-          className="hidden md:flex absolute -right-3.5 top-[35px] bg-white border border-gray-200 rounded-full p-1.5 shadow-sm hover:bg-gray-50 text-gray-500 z-50 transition-colors"
+          className="hidden md:flex absolute -right-3.5 top-[35px] bg-card border border-border rounded-full p-1.5 shadow-sm hover:bg-muted text-muted-foreground z-50 transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]"
           title={isNavCollapsed ? "Expand navigation" : "Collapse navigation"}
         >
           {isNavCollapsed ? <PanelLeftOpen className="w-3.5 h-3.5" /> : <PanelLeftClose className="w-3.5 h-3.5" />}
         </button>
 
-        <div className="border-b border-[#e5e7eb] pt-[21px] pb-[21px] flex flex-col justify-center min-h-[88.5px] shrink-0 transition-all duration-300">
+        <div className="border-b border-[var(--nav-border)] pt-[21px] pb-[21px] flex flex-col justify-center min-h-[88.5px] shrink-0 transition-all duration-[var(--motion-duration-md)] ease-[var(--motion-ease-standard)] motion-reduce:duration-0">
           <div className="flex md:hidden items-center justify-between px-[21px] gap-3">
             <div className="min-w-0">
-              <h1 className="font-semibold text-[#101828] text-[21px] leading-[31.5px] tracking-[-0.3589px]">Clio Accounting</h1>
-              <p className="truncate text-[11px] font-medium text-[#6a7282]">{FIRM_NAME}</p>
-              <p className="truncate text-[10px] text-[#9ca3af]">{FIRM_ATTORNEY_COUNT} attorneys</p>
+              <h1 className="font-semibold text-[var(--text-primary)] text-[21px] leading-[31.5px] tracking-[-0.3589px]">Clio Accounting</h1>
+              <p className="truncate text-[11px] font-medium text-[var(--text-secondary)]">{FIRM_NAME}</p>
+              <p className="truncate text-[10px] text-muted-foreground">{FIRM_ATTORNEY_COUNT} attorneys</p>
             </div>
             <button
               type="button"
@@ -1024,12 +1318,12 @@ export default function App() {
           </div>
           <div className={`hidden md:flex flex-col justify-center h-full ${isNavCollapsed ? 'px-0 items-center' : 'px-[21px]'}`}>
             {isNavCollapsed ? (
-              <div className="w-8 h-8 bg-blue-600 rounded-[8px] flex items-center justify-center text-white font-bold text-lg shrink-0">C</div>
+              <div className="w-8 h-8 bg-primary rounded-[8px] flex items-center justify-center text-primary-foreground font-bold text-lg shrink-0">C</div>
             ) : (
               <div className="animate-in fade-in duration-300 min-w-0">
-                <h1 className="font-semibold text-[#101828] text-[21px] leading-[31.5px] tracking-[-0.3589px] whitespace-nowrap">Clio Accounting</h1>
-                <p className="truncate text-[11px] font-medium text-[#6a7282] mt-0.5">{FIRM_NAME}</p>
-                <p className="truncate text-[10px] text-[#9ca3af]">{FIRM_ATTORNEY_COUNT} attorneys</p>
+                <h1 className="font-semibold text-[var(--text-primary)] text-[21px] leading-[31.5px] tracking-[-0.3589px] whitespace-nowrap">Clio Accounting</h1>
+                <p className="truncate text-[11px] font-medium text-[var(--text-secondary)] mt-0.5">{FIRM_NAME}</p>
+                <p className="truncate text-[10px] text-muted-foreground">{FIRM_ATTORNEY_COUNT} attorneys</p>
               </div>
             )}
           </div>
@@ -1056,63 +1350,28 @@ export default function App() {
                   isNavCollapsed ? 'justify-center h-[40px] w-[48px]' : 'justify-between h-[31.5px] px-[10.5px]'
                 } ${
                   activePage === item.name || (isNavCollapsed && item.subItems?.some(s => s.name === activePage))
-                    ? 'bg-[#f3f4f6] text-[#101828]' 
-                    : 'text-[#364153] hover:bg-[#f3f4f6]'
+                    ? 'bg-[var(--nav-item-active-bg)] text-[var(--text-primary)]' 
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--nav-item-hover-bg)]'
                 }`}
-                title={
-                  isNavCollapsed
-                    ? item.name === 'Inbox'
-                      ? `Inbox (${inboxListItemCount})`
-                      : item.name
-                    : undefined
-                }
+                title={isNavCollapsed ? item.name : undefined}
               >
                 <div className="flex items-center gap-[10.5px] justify-center min-w-0">
-                  {isNavCollapsed && item.name === 'Inbox' ? (
-                    <div className="relative flex h-[31.5px] w-[48px] shrink-0 items-center justify-center">
-                      <item.icon
-                        className={`w-[17.5px] h-[17.5px] shrink-0 ${
-                          activePage === item.name
-                            ? 'text-[#101828]'
-                            : 'text-[#364153] group-hover:text-[#101828]'
-                        }`}
-                        strokeWidth={1.5}
-                      />
-                      {inboxListItemCount > 0 ? (
-                        <span
-                          className="absolute right-1 top-1 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-blue-600 px-0.5 text-[9px] font-bold leading-none text-white tabular-nums"
-                          aria-hidden
-                        >
-                          {inboxListItemCount > 9 ? '9+' : inboxListItemCount}
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <item.icon 
-                      className={`w-[17.5px] h-[17.5px] shrink-0 ${
-                        activePage === item.name || (isNavCollapsed && item.subItems?.some(s => s.name === activePage)) 
-                          ? 'text-[#101828]' 
-                          : 'text-[#364153] group-hover:text-[#101828]'
-                      }`} 
-                      strokeWidth={1.5} 
-                    />
-                  )}
+                  <item.icon
+                    className={`w-[17.5px] h-[17.5px] shrink-0 ${
+                      activePage === item.name || (isNavCollapsed && item.subItems?.some((s) => s.name === activePage))
+                        ? 'text-[var(--text-primary)]'
+                        : 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
+                    }`}
+                    strokeWidth={1.5}
+                  />
                   {!isNavCollapsed && (
                     <span className="font-medium text-[12.25px] leading-[17.5px] whitespace-nowrap animate-in fade-in duration-300">
                       {item.name}
                     </span>
                   )}
                 </div>
-                {!isNavCollapsed && item.name === 'Inbox' && (
-                  <span
-                    className="shrink-0 tabular-nums text-[11px] font-semibold text-[#6a7282] min-w-[1.25rem] text-right"
-                    aria-label={`${inboxListItemCount} inbox items`}
-                  >
-                    {inboxListItemCount}
-                  </span>
-                )}
                 {!isNavCollapsed && item.subItems && (
-                  <ChevronDown className={`w-[14px] h-[14px] shrink-0 text-[#6a7282] transition-transform ${!isFinancesOpen ? '-rotate-90' : ''}`} strokeWidth={1.5} />
+                  <ChevronDown className={`w-[14px] h-[14px] shrink-0 text-[var(--text-secondary)] transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] ${!isFinancesOpen ? '-rotate-90' : ''}`} strokeWidth={1.5} />
                 )}
               </a>
               
@@ -1135,17 +1394,17 @@ export default function App() {
                           closeMobileNav();
                         }
                       }}
-                      className={`flex items-center h-[31.5px] rounded-[8px] pl-[38.5px] pr-[10.5px] gap-[10.5px] transition-all group ${
+                      className={`flex items-center h-[31.5px] rounded-[8px] pl-[38.5px] pr-[10.5px] gap-[10.5px] transition-all duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none group ${
                         activePage === subItem.name 
-                          ? 'bg-[#f3f4f6] text-[#101828]' 
-                          : 'text-[#364153] hover:bg-[#f3f4f6]'
+                          ? 'bg-[var(--nav-item-active-bg)] text-[var(--text-primary)]' 
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--nav-item-hover-bg)]'
                       }`}
                     >
                       <subItem.icon 
-                        className={`w-[17.5px] h-[17.5px] shrink-0 ${activePage === subItem.name ? 'text-[#101828]' : subItem.isAction ? 'text-[#6a7282] group-hover:text-[#101828]' : 'text-[#364153] group-hover:text-[#101828]'}`} 
+                        className={`w-[17.5px] h-[17.5px] shrink-0 ${activePage === subItem.name ? 'text-[var(--text-primary)]' : subItem.isAction ? 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]' : 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'}`} 
                         strokeWidth={1.5} 
                       />
-                      <span className={`font-medium text-[12.25px] leading-[17.5px] whitespace-nowrap ${subItem.isAction ? 'text-[#6a7282] group-hover:text-[#101828]' : ''}`}>
+                      <span className={`font-medium text-[12.25px] leading-[17.5px] whitespace-nowrap ${subItem.isAction ? 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]' : ''}`}>
                         {(subItem as { label?: string }).label ?? subItem.name}
                       </span>
                     </a>
@@ -1156,7 +1415,7 @@ export default function App() {
           ))}
         </nav>
 
-        <div className={`shrink-0 border-t border-[#e5e7eb] pt-[15px] ${isNavCollapsed ? 'px-[12px] pb-[15px]' : 'px-[14px] pb-[12px]'}`}>
+        <div className={`shrink-0 border-t border-[var(--nav-border)] pt-[15px] ${isNavCollapsed ? 'px-[12px] pb-[15px]' : 'px-[14px] pb-[12px]'}`}>
           <div className={`flex flex-col ${isNavCollapsed ? 'items-center gap-[6px]' : 'gap-[6px]'}`}>
             <a
               href="#"
@@ -1165,44 +1424,46 @@ export default function App() {
                 setActivePage('User Profile');
                 closeMobileNav();
               }}
-              className={`flex items-center rounded-[8px] gap-[10.5px] hover:bg-[#f3f4f6] transition-colors group ${
+              className={`flex items-center rounded-[8px] gap-[10.5px] hover:bg-[var(--nav-item-hover-bg)] transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none group ${
                 isNavCollapsed ? 'justify-center h-[40px] w-[48px]' : 'h-[40px] px-[10.5px]'
               }`}
               title={isNavCollapsed ? 'User Profile' : undefined}
             >
-              <div className="w-[21px] h-[21px] rounded-full bg-blue-50 border border-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold shrink-0">
+              <div className="w-[21px] h-[21px] rounded-full bg-[color-mix(in_srgb,var(--chart-sky)_35%,#fff)] border border-[var(--nav-border)] text-[var(--brand-cobalt)] flex items-center justify-center text-[10px] font-bold shrink-0">
                 {USER_INITIALS}
               </div>
               {!isNavCollapsed && (
                 <div className="min-w-0 animate-in fade-in duration-300">
-                  <p className="text-[12.25px] leading-[15px] font-semibold text-[#101828] truncate">{USER_FULL_NAME}</p>
+                  <p className="text-[12.25px] leading-[15px] font-semibold text-[var(--text-primary)] truncate">{USER_FULL_NAME}</p>
                 </div>
               )}
             </a>
 
             <a 
               href="#"
-              className={`flex items-center rounded-[8px] gap-[10.5px] hover:bg-[#f3f4f6] transition-colors group ${
+              className={`flex items-center rounded-[8px] gap-[10.5px] hover:bg-[var(--nav-item-hover-bg)] transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none group ${
                 isNavCollapsed ? 'justify-center h-[40px] w-[48px]' : 'h-[31.5px] px-[10.5px]'
               }`}
               title={isNavCollapsed ? "Settings" : undefined}
             >
-              <Settings className="w-[17.5px] h-[17.5px] text-[#364153] group-hover:text-[#101828] shrink-0" strokeWidth={1.5} />
+              <Settings className="w-[17.5px] h-[17.5px] text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] shrink-0" strokeWidth={1.5} />
               {!isNavCollapsed && (
-                <span className="font-medium text-[#364153] text-[12.25px] leading-[17.5px] group-hover:text-[#101828] whitespace-nowrap animate-in fade-in duration-300">Settings</span>
+                <span className="font-medium text-[var(--text-secondary)] text-[12.25px] leading-[17.5px] group-hover:text-[var(--text-primary)] whitespace-nowrap animate-in fade-in duration-300">Settings</span>
               )}
             </a>
           </div>
         </div>
       </aside>
 
+      {/* Main + docked Clio Teammate: flex row so the rail pushes content instead of covering it */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-row">
       {/* MAIN CONTENT AREA — top padding on small screens for menu button */}
       <main
-        className={`flex-1 relative custom-scrollbar bg-gray-50/30 pt-14 md:pt-0 ${
-          activePage === 'Inbox'
-            ? 'flex flex-col min-h-0 overflow-hidden'
-            : 'overflow-y-auto'
-        }`}
+        className={cn(
+          'relative min-h-0 min-w-0 flex-1 custom-scrollbar overflow-y-auto bg-background pt-14 md:pt-0 transition-[padding] duration-300 ease-out motion-reduce:transition-none',
+          /* Only reserve space when the column can fit rail + content (28rem pad on narrow md would clip the report) */
+          teammateRailOpen && 'lg:pr-[28rem]',
+        )}
       >
         {isCustomizing && customizerContext ? (
           <DashboardCustomizer
@@ -1235,7 +1496,7 @@ export default function App() {
             getCustomizerStrategicRows={getCustomizerStrategicRows}
             modellingWidgetModels={modellingUiBridge.models}
             financialGoalModelIds={financialGoalModelIds}
-            onModellingAddToGoals={addModelToFinancialGoals}
+            onModellingExplore={openModellingExplorePanel}
             onModellingOpenCreateModel={() => setCreateModelDialogOpen(true)}
             initialPeerBenchmarkEnabled={peerBenchmarkEnabled}
             onSaveDashboard={({ title, widgets, sidebarWidgets, mainGridColumns, showSidebar }) => {
@@ -1255,11 +1516,6 @@ export default function App() {
                 ]);
                 setActivePage(id);
                 toast.success('New page added under Finances');
-                pushAiActivity({
-                  kind: 'dashboard_saved',
-                  title: 'Created Finances page',
-                  detail: t,
-                });
               } else {
                 const pid = customizerContext.pageId;
                 setFinanceCustomPages((prev) =>
@@ -1268,29 +1524,18 @@ export default function App() {
                   ),
                 );
                 toast.success('Dashboard updated');
-                pushAiActivity({
-                  kind: 'dashboard_saved',
-                  title: 'Updated dashboard layout',
-                  detail: t,
-                });
               }
               setCustomizerContext(null);
             }}
             onDeleteDashboard={() => {
               if (customizerContext.mode !== 'edit') return;
               const pid = customizerContext.pageId;
-              const deletedTitle =
-                financeCustomPages.find((p) => p.id === pid)?.title ?? 'Dashboard';
-              setFinanceCustomPages((prev) => prev.filter((p) => p.id !== pid));
+              const remaining = financeCustomPages.filter((p) => p.id !== pid);
+              setFinanceCustomPages(remaining);
               setSharedDashboardUsers([]);
               setCustomizerContext(null);
-              setActivePage('Dashboard');
+              setActivePage(remaining[0]?.id ?? FP_FINANCIAL_HEALTH_ID);
               toast.success('Dashboard permanently deleted');
-              pushAiActivity({
-                kind: 'dashboard_deleted',
-                title: 'Deleted dashboard',
-                detail: deletedTitle,
-              });
             }}
             onTakeAction={(insightId) => {
               setShowMorePlans(false);
@@ -1307,25 +1552,16 @@ export default function App() {
               setCustomizerContext(null);
             }}
           />
-        ) : activePage === 'Inbox' ? (
-          <InboxPage
-            executedBriefingInsightIds={executedBriefingPlans}
-            dismissedAmbientHistoryIds={dismissedAmbientHistoryIds}
-            onDismissAmbientHistory={(id) =>
-              setDismissedAmbientHistoryIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
-            }
-            aiActivityLog={aiActivityLog}
-            onTakeAction={(insightId) => {
-              setShowMorePlans(false);
-              setHasExecuted(false);
-              setBriefingPanel({ mode: 'takeAction', insightId: resolveBriefingInsightId(insightId) });
-            }}
-            onNavigate={(page) => {
-              setActivePage(page);
-              setSelectedReport(null);
-            }}
-            brandColor={brandColor}
-            notificationBadgeCount={notificationBadgeCount}
+        ) : activePage === 'Dashboard' ? (
+          <HomeDashboard
+            userFirstName={USER_FIRST_NAME}
+            onOpenTeammate={() => setTeammateRailOpen(true)}
+            onReviewGoals={() => setActivePage('Financial Goals')}
+            onOpenFinancialHealthOverview={() => setActivePage(FP_FINANCIAL_HEALTH_ID)}
+            financialHealthPins={dashboardFinancialPins}
+            reportLibrary={reportLibraryForFinance}
+            onUnpinFinancialPinKey={handleUnpinDashboardFinancial}
+            onOpenSourceFinancePage={(pageId) => setActivePage(pageId)}
           />
         ) : activePage === 'Financial Goals' ? (
           <div className="max-w-6xl mx-auto p-8 pb-32 space-y-8">
@@ -1334,7 +1570,7 @@ export default function App() {
                 <h1 className="text-2xl font-bold text-gray-900">Financial Goals</h1>
               </div>
               <button 
-                className="px-4 py-2 bg-blue-600 text-white rounded-[8px] text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-[8px] text-sm font-medium hover:bg-primary/90 transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] flex items-center gap-2"
                 onClick={() => {}}
               >
                 <Plus className="w-4 h-4" />
@@ -1417,82 +1653,74 @@ export default function App() {
 
             <div className="space-y-3">
               <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest px-1">
-                Firm targets
+                Firm goals
               </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <TrendingUp className="h-5 w-5 text-green-500" />
-                      <h3 className="text-base font-bold text-gray-900">Q3 Revenue Target</h3>
-                    </div>
-                    <p className="text-xs text-gray-500">Achieve $500k in gross revenue by end of Q3</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="text-gray-400 hover:text-gray-600"><Edit2 className="w-4 h-4" /></button>
-                  </div>
-                </div>
-                
-                <div className="space-y-6 flex-1 mt-2">
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-[13px]">
-                      <span className="font-semibold text-gray-700">Progress</span>
-                      <span className="font-bold text-gray-900">
-                        ${briefingFinancialSnapshot.financialGoals.q3Current.toLocaleString()}{' '}
-                        <span className="text-gray-400 font-normal">
-                          / ${Math.round(briefingFinancialSnapshot.financialGoals.q3Target / 1000)}k
-                        </span>
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-[8px] h-2 relative overflow-hidden">
+              <p className="text-sm text-gray-700 leading-relaxed border-l-4 border-primary/40 pl-4 py-1 bg-primary/5 rounded-r-[8px]">
+                {FIRM_INTELLIGENCE_GOALS_FILTER_NARRATIVE}
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {FIRM_GOAL_DEFINITIONS.map((goal) => {
+                  const Icon =
+                    goal.id === 'net_revenue_yoy'
+                      ? TrendingUp
+                      : goal.id === 'days_to_collect'
+                        ? Clock
+                        : Wallet;
+                  const iconColor =
+                    goal.id === 'net_revenue_yoy'
+                      ? 'text-emerald-600'
+                      : goal.id === 'days_to_collect'
+                        ? 'text-amber-600'
+                        : 'text-blue-600';
+                  return (
+                    <div
+                      key={goal.id}
+                      className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors"
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <Icon className={`h-5 w-5 shrink-0 mt-0.5 ${iconColor}`} strokeWidth={2} />
+                          <div className="min-w-0">
+                            <h3 className="text-base font-bold text-gray-900 leading-snug">{goal.title}</h3>
+                            <p className="text-xs text-gray-500 mt-1">{goal.metricHint}</p>
+                          </div>
+                        </div>
+                        <button type="button" className="text-gray-400 hover:text-gray-600 shrink-0" aria-label="Edit goal">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      </div>
                       <div
-                        className="bg-green-500 h-2 rounded-[8px] transition-all duration-1000"
-                        style={{ width: `${Math.min(100, briefingFinancialSnapshot.financialGoals.q3ProgressPct)}%` }}
-                      />
+                        className={`mb-3 inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                          goal.status === 'on_track'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : 'bg-amber-100 text-amber-900 border border-amber-200'
+                        }`}
+                      >
+                        {goal.status === 'on_track' ? 'On track' : 'Behind pace'}
+                      </div>
+                      <div className="space-y-2 flex-1 mt-auto">
+                        <div className="flex justify-between items-center text-[13px] gap-2">
+                          <span className="font-semibold text-gray-700">Progress</span>
+                          <span className="font-bold text-gray-900 text-right">
+                            {goal.progressCurrentLabel}
+                            <span className="text-gray-400 font-normal block sm:inline sm:ml-1 text-[12px]">
+                              → {goal.progressTargetLabel}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-[8px] h-2 relative overflow-hidden">
+                          <div
+                            className={`h-2 rounded-[8px] transition-all duration-1000 ${
+                              goal.status === 'on_track' ? 'bg-emerald-500' : 'bg-amber-500'
+                            }`}
+                            style={{ width: `${Math.min(100, goal.progressPct)}%` }}
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
-
-              <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <History className="h-5 w-5 text-blue-500" />
-                      <h3 className="text-base font-bold text-gray-900">Annual Cash Flow Reserve</h3>
-                    </div>
-                    <p className="text-xs text-gray-500">Maintain 3 months operating expenses in reserve</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="text-gray-400 hover:text-gray-600"><Edit2 className="w-4 h-4" /></button>
-                  </div>
-                </div>
-                
-                <div className="space-y-6 flex-1 mt-2">
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-[13px]">
-                      <span className="font-semibold text-gray-700">Progress</span>
-                      <span className="font-bold text-gray-900">
-                        ${briefingFinancialSnapshot.financialGoals.reserveCurrent.toLocaleString()}{' '}
-                        <span className="text-gray-400 font-normal">
-                          / ${Math.round(briefingFinancialSnapshot.financialGoals.reserveTarget / 1000)}k
-                        </span>
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-[8px] h-2 relative overflow-hidden">
-                      <div
-                        className="h-2 rounded-[8px] transition-all duration-1000"
-                        style={{
-                          width: `${Math.min(100, briefingFinancialSnapshot.financialGoals.reserveProgressPct)}%`,
-                          backgroundColor: brandColor,
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
             </div>
           </div>
         ) : isFinanceCustomPageView && activeFinancePage ? (
@@ -1501,42 +1729,44 @@ export default function App() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between w-full shrink-0">
               <h1 className="text-2xl font-bold text-gray-900">{activeFinancePage.title}</h1>
               <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-                <div className="flex items-center shrink-0">
-                  <div className="flex items-center -space-x-2">
-                    {STRATEGIC_DASHBOARD_ACCESS.map((person, i) => (
-                      <div
-                        key={person.id}
-                        className="relative"
-                        style={{ zIndex: STRATEGIC_DASHBOARD_ACCESS.length - i }}
-                        title={`${person.name} — ${strategicDashboardPresenceLabel(person.presence)}`}
-                      >
+                {financePageHeaderAvatars.length > 0 ? (
+                  <div className="flex items-center shrink-0">
+                    <div className="flex items-center -space-x-2">
+                      {financePageHeaderAvatars.map((person, i) => (
                         <div
-                          className={`flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-bold border-2 border-[#F9FAFB] shadow-sm ring-2 ring-offset-0 ${
-                            person.avatarClass
-                          } ${
-                            person.presence === 'collaborating'
-                              ? 'ring-violet-500'
-                              : person.presence === 'viewing'
-                                ? 'ring-emerald-500'
-                                : 'ring-gray-300 opacity-80'
-                          }`}
+                          key={person.id}
+                          className="relative"
+                          style={{ zIndex: financePageHeaderAvatars.length - i }}
+                          title={`${person.name} — ${strategicDashboardPresenceLabel(person.presence)}`}
                         >
-                          {person.initials}
+                          <div
+                            className={`flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-bold border-2 border-[#F9FAFB] shadow-sm ring-2 ring-offset-0 ${
+                              person.avatarClass
+                            } ${
+                              person.presence === 'collaborating'
+                                ? 'ring-violet-500'
+                                : person.presence === 'viewing'
+                                  ? 'ring-emerald-500'
+                                  : 'ring-gray-300 opacity-80'
+                            }`}
+                          >
+                            {person.initials}
+                          </div>
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white ${
+                              person.presence === 'collaborating'
+                                ? 'bg-violet-500'
+                                : person.presence === 'viewing'
+                                  ? 'bg-emerald-500 animate-pulse'
+                                  : 'bg-gray-300'
+                            }`}
+                            aria-hidden
+                          />
                         </div>
-                        <span
-                          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white ${
-                            person.presence === 'collaborating'
-                              ? 'bg-violet-500'
-                              : person.presence === 'viewing'
-                                ? 'bg-emerald-500 animate-pulse'
-                                : 'bg-gray-300'
-                          }`}
-                          aria-hidden
-                        />
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setShareDialogOpen(true)}
@@ -1755,9 +1985,19 @@ export default function App() {
               >
                 <FinancePageWidgetGrid
                   widgets={activeFinancePage.widgets}
-                  mainGridColumns={2}
+                  mainGridColumns={activeFinancePage.mainGridColumns}
                   modellingUi={modellingUiBridge}
                   reportLibrary={reportLibraryForFinance}
+                  pinUi={
+                    isFinanceCustomPageView && !isCustomizing
+                      ? {
+                          activePageId: activePage,
+                          pinnedPinKeys: financePagePinnedKeys,
+                          onPin: handlePinToDashboardFinancial,
+                          onUnpinPinKey: handleUnpinDashboardFinancial,
+                        }
+                      : null
+                  }
                   onUpdateWidget={(instanceId, patch) => {
                     const pid = activePage;
                     setFinanceCustomPages((prev) =>
@@ -1792,6 +2032,16 @@ export default function App() {
                     widgets={activeFinancePage.sidebarWidgets}
                     modellingUi={modellingUiBridge}
                     reportLibrary={reportLibraryForFinance}
+                    pinUi={
+                      isFinanceCustomPageView && !isCustomizing
+                        ? {
+                            activePageId: activePage,
+                            pinnedPinKeys: financePagePinnedKeys,
+                            onPin: handlePinToDashboardFinancial,
+                            onUnpinPinKey: handleUnpinDashboardFinancial,
+                          }
+                        : null
+                    }
                     onUpdateWidget={(instanceId, patch) => {
                       const pid = activePage;
                       setFinanceCustomPages((prev) =>
@@ -1843,7 +2093,7 @@ export default function App() {
                     <DialogHeader>
                       <DialogTitle className="text-gray-900 text-xl">Create scenario model</DialogTitle>
                       <DialogDescription className="text-gray-600 text-sm">
-                        Name your model and describe what you want to stress-test. Ambient CFO reads your scenario, applies your framework, and builds the chart overlay.
+                        Name your model and describe what you want to stress-test. Firm Intelligence reads your scenario, applies your framework, and builds the chart overlay.
                       </DialogDescription>
                     </DialogHeader>
                   </div>
@@ -1876,7 +2126,7 @@ export default function App() {
                       />
                       <p className="text-[11px] text-gray-500 leading-relaxed flex items-start gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
-                        When you create the model, Ambient CFO interprets this text (hiring, cuts, timing, collections, etc.) and maps it to cash, burn, and runway.
+                        When you create the model, Firm Intelligence interprets this text (hiring, cuts, timing, collections, etc.) and maps it to cash, burn, and runway.
                       </p>
                     </div>
                     <div className="space-y-2">
@@ -1900,7 +2150,7 @@ export default function App() {
                     {isCreateModelProcessing ? (
                       <span className="text-xs text-gray-600 flex items-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
-                        Ambient CFO is reading your scenario and building the model…
+                        Firm Intelligence is reading your scenario and building the model…
                       </span>
                     ) : (
                       <span className="text-xs text-gray-400 hidden sm:inline" />
@@ -1999,7 +2249,7 @@ export default function App() {
                 </div>
 
                 <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6">
-                  <h2 className="text-base font-bold text-gray-900 mb-4">Ambient CFO Preferences</h2>
+                  <h2 className="text-base font-bold text-gray-900 mb-4">Firm Intelligence Preferences</h2>
                   <div className="space-y-4">
                     <label className="flex items-center justify-between rounded-[8px] border border-gray-200 px-4 py-3">
                       <div>
@@ -2018,7 +2268,9 @@ export default function App() {
                     <label className="flex items-center justify-between rounded-[8px] border border-gray-200 px-4 py-3">
                       <div>
                         <p className="text-sm font-semibold text-gray-900">Auto-open Financial Goals</p>
-                        <p className="text-xs text-gray-500">Jump to Financial Goals after adding a model from Modelling.</p>
+                        <p className="text-xs text-gray-500">
+                          Jump to Financial Goals after you execute the recommended plan from Modelling Explore.
+                        </p>
                       </div>
                       <input type="checkbox" defaultChecked className="h-4 w-4 rounded border-gray-300 text-blue-600" />
                     </label>
@@ -2054,14 +2306,51 @@ export default function App() {
           </div>
         ) : activePage === 'Reports' ? (
           selectedReport ? (
-            <ReportDetail reportName={selectedReport} onBack={() => setSelectedReport(null)} />
+            <ReportDetail
+              reportName={selectedReport}
+              onBack={() => {
+                setSelectedReport(null);
+                setProfitLossViewState(DEFAULT_PROFIT_LOSS_VIEW_STATE);
+                setStandardReportViewState(DEFAULT_STANDARD_REPORT_VIEW_STATE);
+              }}
+              brandColor={brandColor}
+              profitLossViewState={
+                selectedReport === 'Profit and Loss' ? profitLossViewState : undefined
+              }
+              onProfitLossChange={
+                selectedReport === 'Profit and Loss'
+                  ? (patch) =>
+                      setProfitLossViewState((s) => ({
+                        ...s,
+                        ...patch,
+                        ...(Object.keys(patch).some((k) => k !== 'highlightPayrollOnly')
+                          ? { highlightPayrollOnly: false }
+                          : {}),
+                      }))
+                  : undefined
+              }
+              standardReportViewState={
+                selectedReport && selectedReport !== 'Profit and Loss'
+                  ? standardReportViewState
+                  : undefined
+              }
+              onStandardReportChange={
+                selectedReport && selectedReport !== 'Profit and Loss'
+                  ? (patch) => setStandardReportViewState((s) => ({ ...s, ...patch }))
+                  : undefined
+              }
+            />
           ) : (
             <div className="max-w-6xl mx-auto p-8 pb-32 animate-in fade-in duration-300">
-              <div className="flex items-center justify-between mb-8">
-                <div>
+              <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
                   <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+                  <p className="mt-2 max-w-xl text-xs leading-relaxed text-gray-600">
+                    Open a report for firm-wide and matter-scoped views. Use the floating search bar or Clio Teammate to
+                    ask Firm Intelligence about your numbers.
+                  </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 flex-wrap items-center gap-3">
                   <div className="flex bg-white border border-gray-200 rounded-[8px] p-0.5 shadow-sm">
                     <button 
                       onClick={() => setReportsViewMode('grid')}
@@ -2136,403 +2425,23 @@ export default function App() {
               )}
             </div>
           )
-        ) : activePage === 'Dashboard' ? (
-          <div className="max-w-6xl mx-auto p-8 pb-32 space-y-8 animate-in fade-in duration-300">
-          
-          {/* TOP SECTION: Chat-Centric Command Center */}
-
-
-          {/* BOTTOM SECTION: Customizable Widgets Grid */}
-          <section>
-            <div className="flex justify-between items-end mb-4 px-1">
-              <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Firm Overview</h3>
-              <button className="text-[11px] font-bold text-gray-400 uppercase hover:text-gray-600 flex items-center">Customize Dashboard <Settings className="h-3 w-3 ml-1" /></button>
-            </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              
-              {/* PRIMARY WIDGET: Cash Flow Projection */}
-              <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 lg:col-span-2 flex flex-col relative overflow-hidden">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">Cash Flow Projection</h3>
-                    <p className="text-xs text-gray-500 mt-0.5 flex items-center">
-                      <Sparkles className="h-3 w-3 mr-1 text-blue-500" /> 
-                      Proactive modeling based on current billing velocity
-                    </p>
-                  </div>
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-1.5">
-                      <div className="w-2 h-2 bg-gray-900 rounded-[8px]"></div>
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Actual</span>
-                    </div>
-                    <div className="flex items-center space-x-1.5">
-                      <div className="w-2 h-2 border border-gray-400 border-dashed rounded-[8px]"></div>
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Projected</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* SVG-based Chart Visualization */}
-                <div className="flex-1 min-h-[220px] w-full bg-gray-50/50 rounded-[8px] relative border border-gray-100 overflow-hidden mb-6 flex items-end px-6 pb-10 pt-4">
-                  
-                  {/* Goal Line - Dashed Green */}
-                  <div className="absolute top-[25%] left-0 right-0 border-t border-green-300 border-dashed w-full opacity-60">
-                     <span className="absolute right-4 -top-5 text-[10px] font-bold text-green-600 bg-white px-1.5 py-0.5 rounded-[8px] border border-green-100 shadow-sm">Target Velocity</span>
-                  </div>
-
-                  {/* Main SVG Plot */}
-                  <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100">
-                    {/* Actual Path */}
-                    <path d="M 5 85 L 20 75 L 35 60 L 50 55 L 65 45" fill="none" stroke="#111827" strokeWidth="2.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-                    {/* Projection Path */}
-                    <path d="M 65 45 L 80 52 L 95 65" fill="none" stroke="#94A3B8" strokeWidth="2.5" strokeDasharray="5 4" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-                    {/* Area Gradient Under Actual */}
-                    <path d="M 5 85 L 20 75 L 35 60 L 50 55 L 65 45 L 65 100 L 5 100 Z" fill="url(#blue-grad)" opacity="0.05" />
-                    <defs>
-                      <linearGradient id="blue-grad" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stopColor="#0069D1" />
-                        <stop offset="100%" stopColor="#0069D1" stopOpacity="0" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                  
-                  {/* Alert Annotation */}
-                  <div className="absolute top-[55%] right-[10%] group">
-                     <div className="relative">
-                        <div className="h-5 w-5 bg-red-100 text-red-600 rounded-[8px] flex items-center justify-center animate-bounce border border-red-200">
-                           <AlertCircle className="h-3 w-3" />
-                        </div>
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-gray-900 text-white text-[10px] font-bold px-3 py-1.5 rounded-[8px] shadow-xl whitespace-nowrap">
-                          -$15,200 Gap Projected for Q3
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-gray-900"></div>
-                        </div>
-                     </div>
-                  </div>
-                  
-                  {/* X Axis Labels */}
-                  <div className="absolute bottom-3 left-0 right-0 flex justify-between px-6 text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-                    <span>Jun</span><span>Jul</span><span>Aug</span><span>Sep (Forecast)</span>
-                  </div>
-                </div>
-
-                <div className="mt-auto">
-                  <div className="bg-red-50/50 border border-red-100 rounded-[8px] p-4 mb-4 flex items-start space-x-3">
-                    <div className="bg-white p-1.5 rounded-[8px] shadow-sm">
-                      <AlertCircle className="h-4 w-4 text-red-600" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-red-900">Revenue Gap Detected</h4>
-                      <p className="text-[11px] text-red-800/80 leading-relaxed mt-0.5">Your current collection cycle has slowed. I've modeled a recovery plan to close the $15.2k gap.</p>
-                    </div>
-                  </div>
-                  
-                  <button 
-                    onClick={() => {
-                      setShowMorePlans(false);
-                      setHasExecuted(false);
-                      setBriefingPanel({ mode: 'takeAction', insightId: 'insight-1' });
-                    }}
-                    className="group w-full py-3.5 px-4 text-white text-sm font-bold rounded-[8px] shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 active:scale-[0.98] transition-all flex justify-center items-center overflow-hidden relative"
-                    style={{ backgroundColor: brandColor }}
-                  >
-                    <span className="relative z-10 flex items-center">
-                      <Sparkles className="h-4 w-4 mr-2 group-hover:rotate-12 transition-transform" />
-                      Review AI Recommended Actions
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {/* SIDE WIDGET: A/R Aging */}
-              <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">A/R Aging</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">Pending collection health</p>
-                  </div>
-                  <Info className="h-4 w-4 text-gray-300 cursor-help" />
-                </div>
-                
-                <div className="space-y-6 flex-1">
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-[12px]">
-                      <span className="font-semibold text-gray-600">Current</span>
-                      <span className="font-bold text-gray-900">$24,500</span>
-                    </div>
-                    <div className="w-full bg-gray-50 rounded-[8px] h-1.5 overflow-hidden">
-                      <div className="h-1.5 rounded-[8px]" style={{ backgroundColor: brandColor, width: '60%' }}></div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-[12px]">
-                      <span className="font-semibold text-gray-600">31-60 Days</span>
-                      <span className="font-bold text-gray-900">$12,400</span>
-                    </div>
-                    <div className="w-full bg-gray-50 rounded-[8px] h-1.5 overflow-hidden">
-                      <div className="bg-yellow-400 h-1.5 rounded-[8px] w-[40%]"></div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-[12px]">
-                      <span className="font-semibold text-gray-600">60+ Days</span>
-                      <span className="font-bold text-red-600">$4,500</span>
-                    </div>
-                    <div className="w-full bg-gray-50 rounded-[8px] h-1.5 overflow-hidden">
-                      <div className="bg-red-500 h-1.5 rounded-[8px] w-[15%]"></div>
-                    </div>
-                  </div>
-                </div>
-                
-                <button className="mt-8 w-full py-2.5 text-xs font-bold text-gray-500 border border-gray-200 rounded-[8px] hover:bg-gray-50 hover:text-gray-900 transition-all uppercase tracking-wider">
-                  View Full A/R Report
-                </button>
-              </div>
-
-              {/* WIDGET: Cash Position & Runway */}
-              <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">Cash & Runway</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">Operating capital</p>
-                  </div>
-                  <Wallet className="h-4 w-4 text-gray-400" />
-                </div>
-                
-                <div className="space-y-4 flex-1 mt-2">
-                  <div>
-                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Total Cash</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">$1.2M</p>
-                  </div>
-                  <div className="pt-4 border-t border-gray-100">
-                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Estimated Runway</p>
-                    <div className="flex items-end mt-1">
-                      <p className="text-xl font-bold text-gray-900">11.4</p>
-                      <p className="text-sm text-gray-500 mb-0.5 ml-1">months</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* WIDGET: Practice Area Performance */}
-              <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">Practice Areas</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">YTD against goals</p>
-                  </div>
-                  <Briefcase className="h-4 w-4 text-gray-400" />
-                </div>
-                
-                <div className="space-y-5 flex-1 mt-2">
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-gray-700">Corporate</span>
-                      <span className="font-bold text-green-600">105%</span>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-[8px] h-1.5 overflow-hidden">
-                      <div className="bg-green-500 h-1.5 rounded-[8px] w-full"></div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-gray-700">Litigation</span>
-                      <span className="font-bold text-gray-900">82%</span>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-[8px] h-1.5 overflow-hidden">
-                      <div className="h-1.5 rounded-[8px] w-[82%]" style={{ backgroundColor: brandColor }}></div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-gray-700">Real Estate</span>
-                      <span className="font-bold text-yellow-600">65%</span>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-[8px] h-1.5 overflow-hidden">
-                      <div className="bg-yellow-400 h-1.5 rounded-[8px] w-[65%]"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* WIDGET: Billing Rate Health */}
-              <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">Billing Health</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">Effective vs Standard</p>
-                  </div>
-                  <Activity className="h-4 w-4 text-gray-400" />
-                </div>
-                
-                <div className="flex flex-col items-center justify-center flex-1 space-y-4">
-                  <div className="relative w-32 h-32 flex items-center justify-center">
-                    <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                      <path className="text-gray-100" strokeWidth="3" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                      <path className="text-blue-600" strokeWidth="3" strokeDasharray="85, 100" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-2xl font-bold text-gray-900">85%</span>
-                      <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wide">Realized</span>
-                    </div>
-                  </div>
-                  <div className="flex justify-between w-full px-2 text-xs">
-                    <div className="text-center">
-                      <p className="text-gray-400 uppercase tracking-wider font-bold text-[9px] mb-1">Standard</p>
-                      <p className="font-bold text-gray-900">$450/hr</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-gray-400 uppercase tracking-wider font-bold text-[9px] mb-1">Effective</p>
-                      <p className="font-bold text-blue-600">$382/hr</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* WIDGET: Collection Trends */}
-              <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 lg:col-span-2 flex flex-col hover:border-gray-300 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">Collection Trends</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">Historical realization speed</p>
-                  </div>
-                  <BarChart3 className="h-4 w-4 text-gray-400" />
-                </div>
-                
-                <div className="flex-1 w-full bg-gray-50/50 rounded-[8px] border border-gray-100 relative min-h-[160px] p-4 flex items-end">
-                  <div className="w-full flex justify-around items-end h-[120px] px-2">
-                    {[{m: 'Jan', h: 60}, {m: 'Feb', h: 75}, {m: 'Mar', h: 55}, {m: 'Apr', h: 80}, {m: 'May', h: 45}, {m: 'Jun', h: 90}].map((d, i) => (
-                      <div key={i} className="flex flex-col items-center space-y-2 w-full max-w-[40px] h-full justify-end group">
-                        <div className="w-full bg-blue-50/50 rounded-t-[8px] h-full relative overflow-hidden flex items-end">
-                          <div 
-                            className="w-full rounded-t-[8px] transition-all duration-500 group-hover:opacity-80" 
-                            style={{ height: `${d.h}%`, backgroundColor: brandColor }}
-                          ></div>
-                        </div>
-                        <span className="text-[10px] text-gray-400 font-bold uppercase">{d.m}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* WIDGET: Active Financial Goals */}
-              <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">Financial Goals</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">Active targets</p>
-                  </div>
-                  <button onClick={() => setActivePage('Financial Goals')} className="text-[10px] font-bold text-blue-600 uppercase hover:underline">Manage</button>
-                </div>
-                
-                <div className="space-y-6 flex-1 mt-2">
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-[12px]">
-                      <div className="flex items-center">
-                        <TrendingUp className="h-3 w-3 text-green-500 mr-1.5" />
-                        <span className="font-semibold text-gray-600">Q3 Revenue</span>
-                      </div>
-                      <span className="font-bold text-gray-900">
-                        ${Math.round(briefingFinancialSnapshot.financialGoals.q3Current / 1000)}k{' '}
-                        <span className="text-gray-400 font-normal">
-                          / ${Math.round(briefingFinancialSnapshot.financialGoals.q3Target / 1000)}k
-                        </span>
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-50 rounded-[8px] h-1.5 overflow-hidden">
-                      <div
-                        className="bg-green-500 h-1.5 rounded-[8px]"
-                        style={{ width: `${Math.min(100, briefingFinancialSnapshot.financialGoals.q3ProgressPct)}%` }}
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-[12px]">
-                      <div className="flex items-center">
-                        <History className="h-3 w-3 text-blue-500 mr-1.5" />
-                        <span className="font-semibold text-gray-600">Cash Reserve</span>
-                      </div>
-                      <span className="font-bold text-gray-900">
-                        ${Math.round(briefingFinancialSnapshot.financialGoals.reserveCurrent / 1000)}k{' '}
-                        <span className="text-gray-400 font-normal">
-                          / ${Math.round(briefingFinancialSnapshot.financialGoals.reserveTarget / 1000)}k
-                        </span>
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-50 rounded-[8px] h-1.5 overflow-hidden">
-                      <div
-                        className="h-1.5 rounded-[8px]"
-                        style={{
-                          width: `${Math.min(100, briefingFinancialSnapshot.financialGoals.reserveProgressPct)}%`,
-                          backgroundColor: brandColor,
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* WIDGET: Realization by Partner */}
-              <div className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">Partner Realization</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">Top contributors</p>
-                  </div>
-                  <PieChart className="h-4 w-4 text-gray-400" />
-                </div>
-                
-                <div className="space-y-5 flex-1 mt-2">
-                  <div className="flex items-center justify-between group">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-9 h-9 rounded-[8px] bg-blue-50 border border-blue-100 flex items-center justify-center text-xs font-bold text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">RM</div>
-                      <div>
-                        <p className="text-sm font-bold text-gray-900">Rachel Mercer</p>
-                        <p className="text-[11px] font-medium text-green-600">93% Realized</p>
-                      </div>
-                    </div>
-                    <span className="text-sm font-bold text-gray-900">$420k</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between group">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-9 h-9 rounded-[8px] bg-gray-50 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 group-hover:bg-gray-600 group-hover:text-white transition-colors">AC</div>
-                      <div>
-                        <p className="text-sm font-bold text-gray-900">Alicia Chen</p>
-                        <p className="text-[11px] font-medium text-gray-500">91% Realized</p>
-                      </div>
-                    </div>
-                    <span className="text-sm font-bold text-gray-900">$385k</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between group">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-9 h-9 rounded-[8px] bg-gray-50 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 group-hover:bg-gray-600 group-hover:text-white transition-colors">MT</div>
-                      <div>
-                        <p className="text-sm font-bold text-gray-900">Michael Torres</p>
-                        <p className="text-[11px] font-medium text-yellow-600">88% Realized</p>
-                      </div>
-                    </div>
-                    <span className="text-sm font-bold text-gray-900">$310k</span>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          </section>
-        </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-500 animate-in fade-in duration-300">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">{activePage}</h2>
           </div>
         )}
       </main>
+
+      <SpecializedTeammateRail
+        dock
+        open={teammateRailOpen}
+        onOpenChange={setTeammateRailOpen}
+        chatHistory={chatHistory}
+        onUserSend={(text) => handleChatSubmit(text)}
+        onClearChat={() => setChatHistory([])}
+        brandColor={brandColor}
+      />
+      </div>
 
       <BriefingSidePanel
         panel={briefingPanel}
@@ -2545,26 +2454,34 @@ export default function App() {
         showMorePlans={showMorePlans}
         setShowMorePlans={setShowMorePlans}
         onExecutePlan={handleExecute}
+        modellingExploreContent={modellingExploreContent}
+        modelAlreadyInGoals={modellingExploreModelAlreadyInGoals}
+        onModellingExecute={handleModellingExecute}
+        onModellingSelectAlternative={handleModellingSelectAlternative}
       />
 
       <FloatingChatBar
         isVisible={!isCustomizing}
-        notificationCount={notificationBadgeCount}
         onOpen={() => setTeammateRailOpen(true)}
         onSubmitMessage={(msg) => {
           setTeammateRailOpen(true);
           if (msg === '__sparkle__') return;
           handleChatSubmit(msg);
         }}
-        onInboxClick={() => {
-          setActivePage('Inbox');
-          closeMobileNav();
-        }}
         suggestedQuestions={suggestedQuestions}
         chatInput={chatInput}
         onChatInputChange={setChatInput}
         brandColor={brandColor}
-        placeholder="Search the product or ask your Ambient CFO..."
+        placeholder="Search the product or ask your Firm Intelligence..."
+        executedBriefingInsightIds={executedBriefingPlans}
+        onBriefingTakeAction={(insightId) => {
+          setShowMorePlans(false);
+          setHasExecuted(false);
+          setBriefingPanel({ mode: 'takeAction', insightId: resolveBriefingInsightId(insightId) });
+        }}
+        onBriefingExplore={(insightId) => {
+          setBriefingPanel({ mode: 'explore', insightId: resolveBriefingInsightId(insightId) });
+        }}
         navigationSection={
           chatInput.trim() && globalSearchResults.length > 0 ? (
             <div className="mb-3">
@@ -2594,15 +2511,6 @@ export default function App() {
             </div>
           ) : null
         }
-      />
-
-      <SpecializedTeammateRail
-        open={teammateRailOpen}
-        onOpenChange={setTeammateRailOpen}
-        chatHistory={chatHistory}
-        onUserSend={(text) => handleChatSubmit(text)}
-        onClearChat={() => setChatHistory([])}
-        brandColor={brandColor}
       />
 
       {/* Embedded CSS for custom styling */}

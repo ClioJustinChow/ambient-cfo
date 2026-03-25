@@ -118,7 +118,7 @@ export default function App() {
                 type="text" 
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Ask your Ambient CFO... (e.g., 'Model the impact of increasing our hourly rate by 10%')"
+                placeholder="Ask your Firm Intelligence... (e.g., 'Model the impact of increasing our hourly rate by 10%')"
                 className="w-full pl-11 pr-24 py-4 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all shadow-inner"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center space-x-2">

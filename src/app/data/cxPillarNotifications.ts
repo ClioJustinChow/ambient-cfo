@@ -1,5 +1,5 @@
 /**
- * CX-pillar narrative notifications (prototype seed), aligned with Ambient CFO vision pillars.
+ * CX-pillar narrative notifications (prototype seed), aligned with Firm Intelligence vision pillars.
  * @see .cursor/rules/cx-prototyping-spec.mdc
  */
 
@@ -30,7 +30,7 @@ export const CX_PILLAR_NOTIFICATIONS: CxPillarNotification[] = [
     pillar: 'onboarding',
     pillarLabel: CX_PILLAR_LABEL.onboarding,
     title: 'Firm chart of accounts scaffold ready',
-    body: 'Ambient CFO mapped your practice structure to a starter CoA and default dimensions. Review exceptions before first close.',
+    body: 'Firm Intelligence mapped your practice structure to a starter CoA and default dimensions. Review exceptions before first close.',
     timeLabel: 'Today',
     navigateTo: 'Chart of Accounts',
   },
@@ -77,7 +77,7 @@ export const CX_PILLAR_NOTIFICATIONS: CxPillarNotification[] = [
     title: 'Practice mix shift detected',
     body: 'Corporate is +8% vs plan YTD; litigation flat. Blended rate is up slightly from matter mix — worth a partner huddle this week.',
     timeLabel: 'This week',
-    navigateTo: 'Dashboard',
+    navigateTo: 'fp_financial_health',
   },
   {
     id: 'cx-act-1',

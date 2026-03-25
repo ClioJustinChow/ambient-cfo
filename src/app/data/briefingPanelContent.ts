@@ -1,16 +1,18 @@
 /** Static copy for This Week's Briefing side panels (Explore Data + Take Action context). */
 
 import type { DrillDownNode } from './drillDownLadder';
+import { USER_FIRST_NAME } from './prototypePersona';
 import {
   drillDownRootInsight1,
   drillDownRootInsight2,
   drillDownRootInsight3,
+  drillDownRootInsight4,
 } from './drillDownExploreRoots';
 
-export type BriefingInsightId = 'insight-1' | 'insight-2' | 'insight-3';
+export type BriefingInsightId = 'insight-1' | 'insight-2' | 'insight-3' | 'insight-4';
 
 export function isBriefingInsightId(id: string): id is BriefingInsightId {
-  return id === 'insight-1' || id === 'insight-2' || id === 'insight-3';
+  return id === 'insight-1' || id === 'insight-2' || id === 'insight-3' || id === 'insight-4';
 }
 
 export interface BriefingExploreContent {
@@ -68,6 +70,21 @@ export const BRIEFING_EXPLORE_BY_ID: Record<BriefingInsightId, BriefingExploreCo
       'Defer non-critical upgrades tied to the same stack until Q4 if you need to smooth OpEx.',
     ],
   },
+  'insight-4': {
+    title: 'Cash Flow Action Plan',
+    aiAnalysis: {
+      summary: `Firm Intelligence projects a 47-day operating cash shortfall against your policy reserve. Instead of only flagging a red indicator, ${USER_FIRST_NAME} sees a phased Cash Flow Action Plan: overdue collections, billable WIP ready to invoice, a payroll-week bridge option, and a clear line of sight to restoring the 60-day reserve through Q2.`,
+      whySurfacing:
+        'We surface this now because (1) the model ties the gap to concrete receivables and WIP you can act on this week, (2) payroll is a fixed date that makes timing risk non-optional, and (3) executing the bundled plan historically closes similar shortfalls without deferring compensation—provided reminders and invoices go out immediately.',
+    },
+    drillDownRoot: drillDownRootInsight4,
+    recommendedActions: [
+      `Immediate: Four invoices totaling $47,200 are 30+ days overdue. Send collection reminders now? One click sends personalized, professional follow-up emails to each client.`,
+      `This week: $23,800 of unbilled time across 3 matters is ready to invoice. Generate and send invoices? One click drafts invoices for attorney review.`,
+      `Mid-month: Payroll runs on Thursday but cash balances are low—get a line of credit with Clio Capital to cover payroll while we work on collections. One click submits the firm’s application.`,
+      `Strategic: If these actions are completed, the projected shortfall closes. Firm Intelligence confirms: “With these actions, your 60-day reserve goal is maintained through Q2.”`,
+    ],
+  },
 };
 
 export function getBriefingExploreContent(id: string): BriefingExploreContent | null {
@@ -80,4 +97,66 @@ export const BRIEFING_ACTION_HEADLINE: Record<BriefingInsightId, string> = {
   'insight-1': 'Collections recovery plan',
   'insight-2': 'Revenue & forecast actions',
   'insight-3': 'Renewal & cost optimization',
+  'insight-4': 'Cash Flow Action Plan',
 };
+
+/** Progress row in the Take Action “model results” block */
+export type BriefingTakeActionModelRow = { label: string; pct: number; amt: string };
+
+export type BriefingTakeActionPhase = {
+  title: string;
+  body: string;
+  ctaHint?: string;
+};
+
+export type BriefingTakeActionContent = {
+  modelHeadline: string;
+  confidenceLabel: string;
+  modelRows: BriefingTakeActionModelRow[];
+  phases?: BriefingTakeActionPhase[];
+  /** Optional closing line under phased plan */
+  strategicClosing?: string;
+};
+
+/**
+ * Per-insight Take Action body. Insights without an entry use the legacy generic block in BriefingSidePanel.
+ */
+export const BRIEFING_TAKE_ACTION_BY_ID: Partial<Record<BriefingInsightId, BriefingTakeActionContent>> = {
+  'insight-4': {
+    modelHeadline: 'Model Results: Shortfall closed if plan executes',
+    confidenceLabel: '88% Confidence',
+    modelRows: [
+      { label: '1. Collection reminders (4 invoices, 30+ days)', pct: 38, amt: '+$28,400' },
+      { label: '2. Draft invoices (3 matters, bill-ready WIP)', pct: 35, amt: '+$23,800' },
+      { label: '3. Clio Capital bridge (payroll week)', pct: 27, amt: 'Coverage' },
+    ],
+    phases: [
+      {
+        title: 'Immediate',
+        body: 'Four invoices totaling $47,200 are 30+ days overdue.',
+        ctaHint: 'Send collection reminders now? One click sends personalized, professional follow-up emails to each client.',
+      },
+      {
+        title: 'This week',
+        body: '$23,800 of unbilled time across 3 matters is ready to invoice.',
+        ctaHint: 'Generate and send invoices? One click drafts invoices for attorney review.',
+      },
+      {
+        title: 'Mid-month',
+        body: 'Payroll runs on Thursday but cash balances are low.',
+        ctaHint: 'Get a line of credit with Clio Capital to cover payroll while we work on collections. One click submits the firm’s application.',
+      },
+      {
+        title: 'Strategic',
+        body: 'If these actions are completed, the projected shortfall closes.',
+        ctaHint: undefined,
+      },
+    ],
+    strategicClosing:
+      'Firm Intelligence: “With these actions, your 60-day reserve goal is maintained through Q2.”',
+  },
+};
+
+export function getBriefingTakeActionContent(id: BriefingInsightId): BriefingTakeActionContent | null {
+  return BRIEFING_TAKE_ACTION_BY_ID[id] ?? null;
+}

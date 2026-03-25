@@ -33,6 +33,7 @@ import {
   type ReportWidgetView,
   type MainGridColumns,
   type ModellingWidgetUiBridge,
+  isFinancialHealthOverviewWidgetId,
 } from './financeWidgetCatalog';
 import type { LucideIcon } from 'lucide-react';
 import { FileText } from 'lucide-react';
@@ -130,7 +131,10 @@ function SortableCanvasWidget({
     canvasList === 'main' ? layoutSizeToGridClass(widget.layoutSize, mainGridColumns) : '';
 
   const headerGap =
-    widget.id === 'ambient_cfo' || widget.id === 'suggested_modelling' || widget.id === 'digital_twin'
+    widget.id === 'ambient_cfo' ||
+    isFinancialHealthOverviewWidgetId(widget.id) ||
+    widget.id === 'suggested_modelling' ||
+    widget.id === 'digital_twin'
       ? 'mb-0 z-10 relative'
       : 'mb-2';
 
@@ -154,7 +158,9 @@ function SortableCanvasWidget({
           >
             <GripVertical className="w-4 h-4" />
           </button>
-          {widget.id === 'ambient_cfo' || widget.id === 'digital_twin' ? null : widget.id ===
+          {widget.id === 'ambient_cfo' ||
+          isFinancialHealthOverviewWidgetId(widget.id) ||
+          widget.id === 'digital_twin' ? null : widget.id ===
           'suggested_modelling' ? (
             <h3 className="text-[14px] font-bold text-gray-900 truncate flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
@@ -313,7 +319,7 @@ export const DashboardCustomizerContent = ({
   getCustomizerStrategicRows,
   modellingWidgetModels,
   financialGoalModelIds,
-  onModellingAddToGoals,
+  onModellingExplore,
   onModellingOpenCreateModel,
   initialPeerBenchmarkEnabled,
 }: {
@@ -337,7 +343,7 @@ export const DashboardCustomizerContent = ({
   ) => StrategicMonthRow[];
   modellingWidgetModels: ModellingWidgetUiBridge['models'];
   financialGoalModelIds: readonly string[];
-  onModellingAddToGoals: (modelId: string) => void;
+  onModellingExplore: (modelId: string) => void;
   onModellingOpenCreateModel: () => void;
   initialPeerBenchmarkEnabled?: boolean;
 }) => {
@@ -426,7 +432,7 @@ export const DashboardCustomizerContent = ({
       selectedModelId: previewModelId,
       onTogglePreview: (id) => setPreviewModelId((p) => (p === id ? null : id)),
       financialGoalModelIds,
-      onAddToGoals: onModellingAddToGoals,
+      onExploreModel: onModellingExplore,
       onOpenCreateModel: onModellingOpenCreateModel,
       peerBenchmarkEnabled: peerBenchmarkDraft,
       onPeerBenchmarkChange: setPeerBenchmarkDraft,
@@ -435,7 +441,7 @@ export const DashboardCustomizerContent = ({
       modellingWidgetModels,
       previewModelId,
       financialGoalModelIds,
-      onModellingAddToGoals,
+      onModellingExplore,
       onModellingOpenCreateModel,
       peerBenchmarkDraft,
     ],
@@ -872,7 +878,7 @@ export const DashboardCustomizerContent = ({
             <div className="flex gap-2 text-blue-700">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <p className="text-[11px] leading-relaxed">
-                Need custom reports? Ask your Ambient CFO to generate a new widget.
+                Need custom reports? Ask your Firm Intelligence to generate a new widget.
               </p>
             </div>
           </div>
@@ -900,7 +906,7 @@ export const DashboardCustomizer = ({
   getCustomizerStrategicRows,
   modellingWidgetModels,
   financialGoalModelIds,
-  onModellingAddToGoals,
+  onModellingExplore,
   onModellingOpenCreateModel,
   initialPeerBenchmarkEnabled,
 }: {
@@ -924,7 +930,7 @@ export const DashboardCustomizer = ({
   ) => StrategicMonthRow[];
   modellingWidgetModels: ModellingWidgetUiBridge['models'];
   financialGoalModelIds: readonly string[];
-  onModellingAddToGoals: (modelId: string) => void;
+  onModellingExplore: (modelId: string) => void;
   onModellingOpenCreateModel: () => void;
   /** Match live Finances toggle when the customizer opens. */
   initialPeerBenchmarkEnabled?: boolean;
@@ -948,7 +954,7 @@ export const DashboardCustomizer = ({
         getCustomizerStrategicRows={getCustomizerStrategicRows}
         modellingWidgetModels={modellingWidgetModels}
         financialGoalModelIds={financialGoalModelIds}
-        onModellingAddToGoals={onModellingAddToGoals}
+        onModellingExplore={onModellingExplore}
         onModellingOpenCreateModel={onModellingOpenCreateModel}
         initialPeerBenchmarkEnabled={initialPeerBenchmarkEnabled}
       />

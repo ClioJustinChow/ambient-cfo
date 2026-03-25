@@ -5,6 +5,14 @@
 
 import type { BriefingInsightId } from './briefingPanelContent';
 import { strategicData, type StrategicMonthRow } from './strategicDashboardSeed';
+import {
+  buildBaseExpenseStackedTrend,
+  buildBaseRevenueStreamsTrend,
+  computeProfitabilityMarginTrend,
+  type ExpenseStackedMonthRow,
+  type ProfitabilityMarginMonthRow,
+  type RevenueStreamMonthRow,
+} from './profitabilitySeed';
 
 export type ArAgingBucket = { name: string; value: number; color: string };
 export type ExpenseBucket = { name: string; value: number; color: string };
@@ -30,20 +38,26 @@ export type BriefingFinancialSnapshot = {
     reserveTarget: number;
     reserveProgressPct: number;
   };
+  /** Revenue streams ($k) by month — profitability widget */
+  revenueStreamsTrend: RevenueStreamMonthRow[];
+  /** Expense categories ($k) stacked by month */
+  expenseStackedTrend: ExpenseStackedMonthRow[];
+  /** Revenue, expenses, operating margin % by month */
+  profitabilityMarginTrend: ProfitabilityMarginMonthRow[];
 };
 
 const DEFAULT_AR: ArAgingBucket[] = [
-  { name: '0-30 Days', value: 45000, color: '#0069D1' },
-  { name: '31-60 Days', value: 25000, color: '#3B82F6' },
-  { name: '61-90 Days', value: 10000, color: '#93C5FD' },
-  { name: '90+ Days', value: 5000, color: '#EF4444' },
+  { name: '0-30 Days', value: 45000, color: 'var(--chart-ocean)' },
+  { name: '31-60 Days', value: 25000, color: 'var(--chart-cobalt)' },
+  { name: '61-90 Days', value: 10000, color: 'var(--chart-sky)' },
+  { name: '90+ Days', value: 5000, color: 'var(--chart-coral)' },
 ];
 
 const DEFAULT_EXPENSES: ExpenseBucket[] = [
-  { name: 'Payroll', value: 45000, color: '#3B82F6' },
-  { name: 'Marketing', value: 15000, color: '#10B981' },
-  { name: 'Software', value: 8000, color: '#F59E0B' },
-  { name: 'Office', value: 4000, color: '#6B7280' },
+  { name: 'Payroll', value: 45000, color: 'var(--chart-cobalt)' },
+  { name: 'Marketing', value: 15000, color: 'var(--chart-emerald)' },
+  { name: 'Software', value: 8000, color: 'var(--brand-amber)' },
+  { name: 'Office', value: 4000, color: 'color-mix(in srgb, var(--brand-carbon) 45%, #ffffff)' },
 ];
 
 function cloneStrategicRows(): StrategicMonthRow[] {
@@ -102,6 +116,14 @@ function applyInsightStrategic(rows: StrategicMonthRow[], id: BriefingInsightId)
         i >= 2 ? { ...row, burn: Math.max(38000, row.burn - 1600) } : { ...row },
       );
     }
+    case 'insight-4': {
+      /** Collections + invoicing + payroll bridge: stronger near-term cash path than insight-1 alone */
+      const bumps = [0, 12000, 26000, 34000, 28000, 15000, 0, 0, 0, 0];
+      return rows.map((row, i) => ({
+        ...row,
+        cash: row.cash + (bumps[i] ?? 0),
+      }));
+    }
     default:
       return rows;
   }
@@ -126,6 +148,18 @@ function applyInsightAr(ar: ArAgingBucket[], id: BriefingInsightId): ArAgingBuck
     const b030 = idx('0-30 Days');
     if (b030) b030.value += 12000;
   }
+  if (id === 'insight-4') {
+    const b030 = idx('0-30 Days');
+    const b3160 = idx('31-60 Days');
+    const b90 = idx('90+ Days');
+    if (b030 && b3160 && b90) {
+      const from3160 = 18000;
+      const from90 = 6000;
+      b3160.value = Math.max(0, b3160.value - from3160);
+      b90.value = Math.max(0, b90.value - from90);
+      b030.value += from3160 + from90;
+    }
+  }
   return next;
 }
 
@@ -136,6 +170,47 @@ function applyInsightExpenses(exp: ExpenseBucket[], id: BriefingInsightId): Expe
     if (sw) sw.value = Math.max(2000, sw.value - 2800);
   }
   return next;
+}
+
+function cloneRevenueStreams(rows: RevenueStreamMonthRow[]): RevenueStreamMonthRow[] {
+  return rows.map((r) => ({ ...r }));
+}
+
+function cloneExpenseStacked(rows: ExpenseStackedMonthRow[]): ExpenseStackedMonthRow[] {
+  return rows.map((r) => ({ ...r }));
+}
+
+/** Nudge profitability trends when briefing plans execute (prototype). */
+function applyInsightProfitabilityTrends(
+  streams: RevenueStreamMonthRow[],
+  stacked: ExpenseStackedMonthRow[],
+  id: BriefingInsightId,
+): void {
+  if (id === 'insight-1') {
+    for (let i = 0; i < Math.min(4, streams.length); i++) {
+      streams[i]!.hourly = Math.round((streams[i]!.hourly + 14) * 10) / 10;
+    }
+  }
+  if (id === 'insight-2') {
+    for (const r of streams) {
+      r.hourly = Math.round(r.hourly * 1.038 * 10) / 10;
+      r.flatFee = Math.round(r.flatFee * 1.038 * 10) / 10;
+      r.referral = Math.round(r.referral * 1.038 * 10) / 10;
+      r.other = Math.round(r.other * 1.038 * 10) / 10;
+    }
+  }
+  if (id === 'insight-3') {
+    for (let i = 2; i < stacked.length; i++) {
+      stacked[i]!.Software = Math.max(1.5, Math.round(stacked[i]!.Software * 0.62 * 10) / 10);
+      stacked[i]!.Marketing = Math.round(Math.max(2, stacked[i]!.Marketing - 1.2) * 10) / 10;
+    }
+  }
+  if (id === 'insight-4') {
+    for (let i = 0; i < Math.min(5, streams.length); i++) {
+      streams[i]!.hourly = Math.round((streams[i]!.hourly + 10) * 10) / 10;
+      streams[i]!.flatFee = Math.round((streams[i]!.flatFee + 6) * 10) / 10;
+    }
+  }
 }
 
 /** Build full dashboard snapshot from executed briefing plans (order-preserving, de-duped by caller). */
@@ -161,10 +236,14 @@ export function buildBriefingFinancialSnapshot(
     reserveProgressPct: pctToward(80000, 120000),
   };
 
+  let revenueStreamsTrend = cloneRevenueStreams(buildBaseRevenueStreamsTrend());
+  let expenseStackedTrend = cloneExpenseStacked(buildBaseExpenseStackedTrend());
+
   for (const id of executedInsights) {
     rows = applyInsightStrategic(rows, id).map(clampRunway);
     ar = applyInsightAr(ar, id);
     expenses = applyInsightExpenses(expenses, id);
+    applyInsightProfitabilityTrends(revenueStreamsTrend, expenseStackedTrend, id);
 
     if (id === 'insight-2') {
       revenue = {
@@ -191,6 +270,12 @@ export function buildBriefingFinancialSnapshot(
         reserveCurrent: Math.min(financialGoals.reserveTarget, financialGoals.reserveCurrent + 8000),
       };
     }
+    if (id === 'insight-4') {
+      financialGoals = {
+        ...financialGoals,
+        reserveCurrent: Math.min(financialGoals.reserveTarget, financialGoals.reserveCurrent + 18000),
+      };
+    }
   }
 
   financialGoals = {
@@ -201,6 +286,10 @@ export function buildBriefingFinancialSnapshot(
 
   const runwayTrend = rows.map((r) => ({ month: r.month, runway: r.runway }));
   const cashFlowBars = strategicRowsToCashFlowBars(rows);
+  const profitabilityMarginTrend = computeProfitabilityMarginTrend(
+    revenueStreamsTrend,
+    expenseStackedTrend,
+  );
 
   return {
     strategicRows: rows,
@@ -210,5 +299,8 @@ export function buildBriefingFinancialSnapshot(
     expenseRep: expenses,
     revenue,
     financialGoals,
+    revenueStreamsTrend,
+    expenseStackedTrend,
+    profitabilityMarginTrend,
   };
 }

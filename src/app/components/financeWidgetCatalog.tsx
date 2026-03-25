@@ -8,8 +8,8 @@ import {
   LayoutDashboard,
   Target,
   TrendingUp,
-  History,
   Wallet,
+  Clock,
   ArrowUpFromLine,
   Activity,
   Briefcase,
@@ -17,6 +17,13 @@ import {
   LineChart as LucideLineChart,
   Gauge,
   Cpu,
+  Percent,
+  Layers,
+  LayoutGrid,
+  AlertTriangle,
+  Shield,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -34,12 +41,20 @@ import {
   Pie,
   LineChart,
   Line,
+  ComposedChart,
 } from 'recharts';
 import { ThisWeeksBriefing } from './ThisWeeksBriefing';
 import type { BriefingInsightId } from '../data/briefingPanelContent';
 import { strategicData, type StrategicMonthRow } from '../data/strategicDashboardSeed';
+import { FIRM_GOAL_DEFINITIONS } from '../data/firmGoals';
 import { buildBriefingFinancialSnapshot, strategicRowsToCashFlowBars } from '../data/briefingFinancialImpact';
+import {
+  EXPENSE_STACK_COLORS,
+  REVENUE_STREAM_COLORS,
+  REVENUE_STREAM_LABELS,
+} from '../data/profitabilitySeed';
 import { useStrategicDashboardCharts } from '../context/StrategicDashboardChartsContext';
+import { ModellingPeerComparisonStrip } from './ModellingPeerComparisonStrip';
 import {
   getReportTableRows,
   getReportSummaryContent,
@@ -56,6 +71,16 @@ import {
 import { DIGITAL_TWIN_CATALOG_DESC } from '../data/prototypePersona';
 import { DigitalTwinWidget, type DigitalTwinScenarioId } from './DigitalTwinWidget';
 import { SuggestedModellingWidget, type ModellingWidgetUiBridge } from './SuggestedModellingWidget';
+import {
+  FhoPersonalizationBanner,
+  FhoFirmGoalsDetailWidget,
+  FhoOperatingCashDetailWidget,
+  FhoRevenueDetailWidget,
+  FhoArAtRiskDetailWidget,
+  FhoRunwayDetailWidget,
+  FhoIoltaTrustDetailWidget,
+  FhoUnbilledDetailWidget,
+} from './FinancialHealthOverviewWidgets';
 
 export type { ModellingWidgetUiBridge } from './SuggestedModellingWidget';
 
@@ -76,6 +101,18 @@ export function normalizeReportView(raw?: string | null): ReportWidgetView {
 
 export const EMBEDDED_REPORT_WIDGET_ID = 'embedded_report' as const;
 
+/** Built-in Finances page: Financial Health Overview (default firm finances landing). */
+export const FP_FINANCIAL_HEALTH_ID = 'fp_financial_health' as const;
+
+export function isFinancialHealthOverviewWidgetId(widgetId: string): boolean {
+  return widgetId.startsWith('fho_');
+}
+
+/** Widgets that must stay in Finances context (charts / goals bridge); no Dashboard pin. */
+export function isWidgetPinDisabled(widgetId: string): boolean {
+  return widgetId === 'suggested_modelling';
+}
+
 export type FinancePageWidget = {
   instanceId: string;
   widgetId: string;
@@ -84,6 +121,14 @@ export type FinancePageWidget = {
   reportName?: string;
   reportView?: ReportWidgetView;
 };
+
+/** Stable key for pin state (one pin per catalog widget, or per embedded report name). */
+export function getFinanceWidgetPinKey(w: Pick<FinancePageWidget, 'widgetId' | 'reportName'>): string {
+  if (w.widgetId === EMBEDDED_REPORT_WIDGET_ID && w.reportName?.trim()) {
+    return `${EMBEDDED_REPORT_WIDGET_ID}::${w.reportName.trim()}`;
+  }
+  return w.widgetId;
+}
 
 export type ReportLibraryEntry = {
   name: string;
@@ -104,6 +149,62 @@ export type HydratedPlacedWidget = {
 };
 
 export const WIDGET_CATALOG = [
+  {
+    id: 'fho_personalization_banner',
+    title: 'Firm Intelligence introduction',
+    category: 'Financial Health',
+    icon: Sparkles,
+    desc: 'Personalized overview message from Firm Intelligence',
+  },
+  {
+    id: 'fho_firm_goals_detail',
+    title: 'Firm goals (detail)',
+    category: 'Financial Health',
+    icon: Target,
+    desc: 'Dashboard goals strip expanded — progress and Firm Intelligence narrative',
+  },
+  {
+    id: 'fho_operating_cash_detail',
+    title: 'Operating cash (detail)',
+    category: 'Financial Health',
+    icon: Wallet,
+    desc: 'Same headline as Dashboard KPI — bridge table and cash drivers',
+  },
+  {
+    id: 'fho_revenue_detail',
+    title: 'Revenue (detail)',
+    category: 'Financial Health',
+    icon: TrendingUp,
+    desc: 'Recognized revenue mix, Grow pipeline, and margin context',
+  },
+  {
+    id: 'fho_ar_at_risk_detail',
+    title: 'AR at risk (detail)',
+    category: 'Financial Health',
+    icon: AlertTriangle,
+    desc: '60+ overdue invoices plus per-client collection patterns',
+  },
+  {
+    id: 'fho_runway_detail',
+    title: 'Runway (detail)',
+    category: 'Financial Health',
+    icon: Activity,
+    desc: 'Dashboard runway KPI with extended narrative and trend',
+  },
+  {
+    id: 'fho_iolta_trust_detail',
+    title: 'IOLTA trust (detail)',
+    category: 'Financial Health',
+    icon: Shield,
+    desc: 'Trust balances, compliance, and checklist rows',
+  },
+  {
+    id: 'fho_unbilled_detail',
+    title: 'Unbilled time (detail)',
+    category: 'Financial Health',
+    icon: FileText,
+    desc: 'Aged WIP total and ranked matters aligned with Dashboard',
+  },
   { id: 'runway', title: 'Runway Projection', category: 'Charts', icon: BarChart2, desc: '6-month cash runway trend' },
   { id: 'cash_flow', title: 'Cash Flow', category: 'Charts', icon: BarChart2, desc: 'Operating cash flow vs target' },
   { id: 'ar_aging', title: 'A/R Aging', category: 'Graphs', icon: PieChart, desc: 'Accounts receivable aging buckets' },
@@ -120,7 +221,7 @@ export const WIDGET_CATALOG = [
     title: 'Suggested Modelling',
     category: 'Modelling',
     icon: Sparkles,
-    desc: 'Scenario models, preview overlay on charts, and add to Financial Goals',
+    desc: 'Scenario models, preview overlay on charts, and Explore to review plans before linking to Financial Goals',
   },
   { id: 'expense_rep', title: 'Expense Breakdown', category: 'Reports', icon: FileText, desc: 'Monthly expenses by category' },
   { id: 'rev_target', title: 'Revenue Target', category: 'Reports', icon: FileText, desc: 'Progress towards quarterly goals' },
@@ -129,7 +230,7 @@ export const WIDGET_CATALOG = [
     title: 'Financial Goals',
     category: 'Goals',
     icon: Target,
-    desc: 'Active firm goals, progress, and targets (pair with Cash, Burn, Runway in Core metrics)',
+    desc: 'Net revenue YoY, days-to-collect, and 60-day cash reserve—how Firm Intelligence filters recommendations',
   },
   {
     id: 'strat_cash',
@@ -180,6 +281,27 @@ export const WIDGET_CATALOG = [
     icon: Users,
     desc: 'Partner-level realization vs target',
   },
+  {
+    id: 'revenue_streams_trend',
+    title: 'Revenue streams',
+    category: 'Profitability',
+    icon: Layers,
+    desc: 'Monthly gross revenue by stream ($k)—hourly, flat fee, referral, other',
+  },
+  {
+    id: 'expense_stacked_trend',
+    title: 'Expenses over time',
+    category: 'Profitability',
+    icon: BarChart2,
+    desc: 'Stacked operating expenses by category ($k) each month',
+  },
+  {
+    id: 'profitability_margin',
+    title: 'Operating margin',
+    category: 'Profitability',
+    icon: Percent,
+    desc: 'Revenue vs OpEx ($k) and operating margin % trend',
+  },
 ] as const;
 
 export type FinanceCatalogWidgetId = (typeof WIDGET_CATALOG)[number]['id'];
@@ -190,7 +312,10 @@ export function defaultLayoutSizeForWidgetId(widgetId: string): WidgetLayoutSize
     widgetId === 'digital_twin' ||
     widgetId === 'financial_goals' ||
     widgetId === EMBEDDED_REPORT_WIDGET_ID ||
-    widgetId === 'suggested_modelling'
+    widgetId === 'suggested_modelling' ||
+    widgetId === 'revenue_streams_trend' ||
+    widgetId === 'expense_stacked_trend' ||
+    widgetId === 'profitability_margin'
   ) {
     return 'expanded';
   }
@@ -304,6 +429,74 @@ export function ReportViewToolbar({
   );
 }
 
+export type FinanceWidgetSurface = 'page' | 'dashboardSummary';
+
+export type FinancePagePinUi = {
+  activePageId: string;
+  /** From `getFinanceWidgetPinKey` for each dashboard pin */
+  pinnedPinKeys: ReadonlySet<string>;
+  onPin: (row: FinancePageWidget) => void;
+  onUnpinPinKey: (pinKey: string) => void;
+};
+
+function DashboardPinGenericCatalogSummary({
+  id,
+  sourcePageId,
+  onOpenSourceFinancePage,
+}: {
+  id: string;
+  sourcePageId?: string;
+  onOpenSourceFinancePage?: (pageId: string) => void;
+}) {
+  const cat = WIDGET_CATALOG.find((w) => w.id === id);
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-bold text-foreground">{cat?.title ?? id}</p>
+      <p className="text-[11px] text-muted-foreground line-clamp-4">
+        {cat?.desc ?? 'Pinned widget—open Finances for the full view.'}
+      </p>
+      {sourcePageId && onOpenSourceFinancePage ? (
+        <button
+          type="button"
+          onClick={() => onOpenSourceFinancePage(sourcePageId)}
+          className="text-[11px] font-semibold text-primary hover:underline"
+        >
+          Open in Finances
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function DashboardPinEmbeddedReportSummary({
+  reportName,
+  sourcePageId,
+  onOpenSourceFinancePage,
+  reportLibrary,
+}: {
+  reportName?: string;
+  sourcePageId?: string;
+  onOpenSourceFinancePage?: (pageId: string) => void;
+  reportLibrary?: readonly ReportLibraryEntry[];
+}) {
+  const meta = reportName ? reportLibrary?.find((r) => r.name === reportName) : undefined;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-bold text-foreground">{reportName ?? 'Report'}</p>
+      <p className="text-[11px] text-muted-foreground line-clamp-3">{meta?.desc ?? 'Embedded financial report'}</p>
+      {sourcePageId && onOpenSourceFinancePage ? (
+        <button
+          type="button"
+          onClick={() => onOpenSourceFinancePage(sourcePageId)}
+          className="text-[11px] font-semibold text-primary hover:underline"
+        >
+          Open in Finances
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 type FinanceWidgetContentProps = {
   id: string;
   instanceId?: string;
@@ -319,9 +512,16 @@ type FinanceWidgetContentProps = {
   onDigitalTwinScenario?: (id: DigitalTwinScenarioId) => void;
   /** suggested_modelling — preview/goals/create; omit to show placeholder */
   modellingUi?: ModellingWidgetUiBridge | null;
+  /** Dashboard Financial Health pin strip */
+  surface?: FinanceWidgetSurface;
+  onOpenFullFinancialHealth?: () => void;
+  onOpenSourceFinancePage?: (pageId: string) => void;
+  /** Pinned-from page (generic + embedded summaries) */
+  sourcePageId?: string;
+  reportLibrary?: readonly ReportLibraryEntry[];
 };
 
-export function FinanceWidgetContent({
+function FinanceWidgetBody({
   id,
   instanceId,
   onTakeAction,
@@ -332,6 +532,11 @@ export function FinanceWidgetContent({
   reportView: reportViewProp = 'chart_compact',
   onDigitalTwinScenario,
   modellingUi,
+  surface = 'page',
+  onOpenFullFinancialHealth,
+  onOpenSourceFinancePage,
+  sourcePageId,
+  reportLibrary,
 }: FinanceWidgetContentProps) {
   const reportView = normalizeReportView(reportViewProp);
   const chartCtx = useStrategicDashboardCharts();
@@ -340,10 +545,6 @@ export function FinanceWidgetContent({
   const peerBenchmarkEnabled = chartCtx?.peerBenchmarkEnabled ?? false;
   const briefingSnapshot = chartCtx?.briefingSnapshot ?? buildBriefingFinancialSnapshot([]);
 
-  const runwaySeries = chartData.map((r) => ({
-    month: r.month,
-    runway: r.altRunway ?? r.runway,
-  }));
   const cashFlowSeries = strategicRowsToCashFlowBars(
     chartData.map((r) => ({
       month: r.month,
@@ -351,56 +552,240 @@ export function FinanceWidgetContent({
       burn: r.altBurn ?? r.burn,
     })),
   );
+  const cashFlowComposedData = cashFlowSeries.map((bar, i) => {
+    const r = chartData[i];
+    return {
+      ...bar,
+      firmCash: r?.cash,
+      altCashLine: r?.altCash,
+      peerCashLine: r?.peerCash,
+    };
+  });
   const revPie = [
     { name: 'Current', value: briefingSnapshot.revenue.pieCurrent },
     { name: 'Target', value: briefingSnapshot.revenue.pieRemaining },
   ];
-  const fgSnap = briefingSnapshot.financialGoals;
-
   const chartId = instanceId || Math.random().toString(36).substr(2, 9);
   const gradientId = `color-${id}-${chartId}`;
 
+  if (surface === 'dashboardSummary') {
+    switch (id) {
+      case 'fho_personalization_banner':
+        return (
+          <FhoPersonalizationBanner surface="dashboardSummary" onOpenFullFinancialHealth={onOpenFullFinancialHealth} />
+        );
+      case 'fho_firm_goals_detail':
+        return <FhoFirmGoalsDetailWidget surface="dashboardSummary" />;
+      case 'fho_operating_cash_detail':
+        return <FhoOperatingCashDetailWidget surface="dashboardSummary" />;
+      case 'fho_revenue_detail':
+        return <FhoRevenueDetailWidget surface="dashboardSummary" />;
+      case 'fho_ar_at_risk_detail':
+        return <FhoArAtRiskDetailWidget surface="dashboardSummary" />;
+      case 'fho_runway_detail':
+        return <FhoRunwayDetailWidget surface="dashboardSummary" />;
+      case 'fho_iolta_trust_detail':
+        return <FhoIoltaTrustDetailWidget surface="dashboardSummary" />;
+      case 'fho_unbilled_detail':
+        return <FhoUnbilledDetailWidget surface="dashboardSummary" />;
+      case EMBEDDED_REPORT_WIDGET_ID:
+        return (
+          <DashboardPinEmbeddedReportSummary
+            reportName={reportName}
+            sourcePageId={sourcePageId}
+            onOpenSourceFinancePage={onOpenSourceFinancePage}
+            reportLibrary={reportLibrary}
+          />
+        );
+      default:
+        return (
+          <DashboardPinGenericCatalogSummary
+            id={id}
+            sourcePageId={sourcePageId}
+            onOpenSourceFinancePage={onOpenSourceFinancePage}
+          />
+        );
+    }
+  }
+
   switch (id) {
-    case 'runway':
+    case 'fho_personalization_banner':
+      return <FhoPersonalizationBanner />;
+    case 'fho_firm_goals_detail':
+      return <FhoFirmGoalsDetailWidget />;
+    case 'fho_operating_cash_detail':
+      return <FhoOperatingCashDetailWidget />;
+    case 'fho_revenue_detail':
+      return <FhoRevenueDetailWidget />;
+    case 'fho_ar_at_risk_detail':
+      return <FhoArAtRiskDetailWidget />;
+    case 'fho_runway_detail':
+      return <FhoRunwayDetailWidget />;
+    case 'fho_iolta_trust_detail':
+      return <FhoIoltaTrustDetailWidget />;
+    case 'fho_unbilled_detail':
+      return <FhoUnbilledDetailWidget />;
+    case 'runway': {
+      const showRwOverlay = peerBenchmarkEnabled || Boolean(selectedModelId);
+      const rwTooltipLabel = (name: string) => {
+        if (name === 'runway') return 'Your firm';
+        if (name === 'altRunway') return 'Scenario (Preview)';
+        if (name === 'peerRunway') return 'Peer composite';
+        return name;
+      };
       return (
         <div className="h-full w-full flex flex-col">
           <div className="flex-1 min-h-[150px] mt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart id={`chart-${chartId}`} data={runwaySeries} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                <defs key="defs">
-                  <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} dy={10} />
-                <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} />
-                <Tooltip key="tooltip" contentStyle={{ borderRadius: '8px', fontSize: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                <Area key="area" type="monotone" dataKey="runway" stroke="#10B981" strokeWidth={1.5} fillOpacity={1} fill={`url(#${gradientId})`} />
-              </AreaChart>
+              <LineChart
+                id={`chart-${chartId}`}
+                data={chartData}
+                margin={{ top: 4, right: 4, left: -20, bottom: showRwOverlay ? 4 : 0 }}
+                accessibilityLayer={false}
+              >
+                <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} dy={10} />
+                <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} />
+                <Tooltip
+                  key="tooltip"
+                  contentStyle={{ borderRadius: '8px', fontSize: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  formatter={(value: number, name: string) => [`${value} months`, rwTooltipLabel(name)]}
+                />
+                {showRwOverlay ? <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} /> : null}
+                <Line
+                  key="line-firm"
+                  name="Your firm"
+                  type="monotone"
+                  dataKey="runway"
+                  stroke="var(--chart-emerald)"
+                  strokeWidth={2}
+                  dot={{ r: 3, strokeWidth: 1.5, fill: '#fff' }}
+                />
+                {selectedModelId ? (
+                  <Line
+                    key="line-alt"
+                    name="Scenario (Preview)"
+                    type="monotone"
+                    dataKey="altRunway"
+                    stroke="var(--chart-scenario)"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={{ r: 3, strokeWidth: 1.5, fill: '#fff' }}
+                  />
+                ) : null}
+                {peerBenchmarkEnabled ? (
+                  <Line
+                    key="line-peer"
+                    name="Peer composite"
+                    type="monotone"
+                    dataKey="peerRunway"
+                    stroke="var(--chart-peer)"
+                    strokeWidth={1.75}
+                    strokeDasharray="2 4"
+                    dot={{ r: 2.5, strokeWidth: 1.5, fill: '#fff' }}
+                  />
+                ) : null}
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
       );
-    case 'cash_flow':
+    }
+    case 'cash_flow': {
+      const showCashOverlay = peerBenchmarkEnabled || Boolean(selectedModelId);
+      const cashLineTooltip = (name: string) => {
+        if (name === 'firmCash') return 'Your firm (cash $)';
+        if (name === 'altCashLine') return 'Scenario cash ($)';
+        if (name === 'peerCashLine') return 'Peer cash ($)';
+        return name;
+      };
       return (
         <div className="h-full w-full flex flex-col">
           <div className="flex-1 min-h-[150px] mt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart id={`chart-${chartId}`} data={cashFlowSeries} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} dy={10} />
-                <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} />
-                <Tooltip key="tooltip" cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '8px', fontSize: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                <Bar key="bar-in" dataKey="in" name="Cash In" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={8} />
-                <Bar key="bar-out" dataKey="out" name="Cash Out" fill="#EF4444" radius={[4, 4, 0, 0]} barSize={8} />
+              <ComposedChart
+                id={`chart-${chartId}`}
+                data={cashFlowComposedData}
+                margin={{ top: 4, right: showCashOverlay ? 8 : 0, left: -20, bottom: showCashOverlay ? 4 : 0 }}
+                accessibilityLayer={false}
+              >
+                <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} dy={10} />
+                <YAxis
+                  yAxisId="left"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
+                />
+                {showCashOverlay ? (
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 9, fill: 'var(--chart-tick)' }}
+                    width={44}
+                    tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`}
+                  />
+                ) : null}
+                <Tooltip
+                  key="tooltip"
+                  cursor={{ fill: 'transparent' }}
+                  contentStyle={{ borderRadius: '8px', fontSize: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  formatter={(value: number, name: string) => {
+                    if (name === 'firmCash' || name === 'altCashLine' || name === 'peerCashLine') {
+                      return [`$${value.toLocaleString()}`, cashLineTooltip(name)];
+                    }
+                    return [value, name];
+                  }}
+                />
                 <Legend key="legend" wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} iconType="circle" iconSize={6} />
-              </BarChart>
+                <Bar yAxisId="left" key="bar-in" dataKey="in" name="Cash In" fill="var(--chart-ocean)" radius={[4, 4, 0, 0]} barSize={8} />
+                <Bar yAxisId="left" key="bar-out" dataKey="out" name="Cash Out" fill="var(--chart-coral)" radius={[4, 4, 0, 0]} barSize={8} />
+                {selectedModelId ? (
+                  <Line
+                    yAxisId="right"
+                    key="line-alt-cash"
+                    type="monotone"
+                    dataKey="altCashLine"
+                    name="Scenario cash ($)"
+                    stroke="var(--chart-scenario)"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={false}
+                  />
+                ) : null}
+                {peerBenchmarkEnabled ? (
+                  <Line
+                    yAxisId="right"
+                    key="line-peer-cash"
+                    type="monotone"
+                    dataKey="peerCashLine"
+                    name="Peer cash ($)"
+                    stroke="var(--chart-peer)"
+                    strokeWidth={2}
+                    strokeDasharray="2 4"
+                    dot={false}
+                  />
+                ) : null}
+                {selectedModelId || peerBenchmarkEnabled ? (
+                  <Line
+                    yAxisId="right"
+                    key="line-firm-cash"
+                    type="monotone"
+                    dataKey="firmCash"
+                    name="Your firm (cash $)"
+                    stroke="var(--chart-ocean)"
+                    strokeWidth={1.75}
+                    dot={false}
+                  />
+                ) : null}
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
       );
+    }
     case 'ar_aging':
       return (
         <div className="h-full w-full flex flex-col items-center justify-center mt-2">
@@ -458,8 +843,8 @@ export function FinanceWidgetContent({
             <ResponsiveContainer width="100%" height="100%">
               <RePieChart id={`chart-${chartId}`}>
                 <Pie key="pie" data={revPie} startAngle={180} endAngle={0} innerRadius={50} outerRadius={70} paddingAngle={0} dataKey="value">
-                  <Cell key="rev-curr" fill="#10B981" />
-                  <Cell key="rev-targ" fill="#f3f4f6" />
+                  <Cell key="rev-curr" fill="var(--chart-emerald)" />
+                  <Cell key="rev-targ" fill="var(--chart-grid)" />
                 </Pie>
               </RePieChart>
             </ResponsiveContainer>
@@ -504,48 +889,53 @@ export function FinanceWidgetContent({
     case 'financial_goals':
       return (
         <div className="h-full w-full flex flex-col mt-1">
-          <p className="text-[11px] text-gray-500 mb-3">Snapshot of goals also tracked on the Financial Goals page.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="rounded-[8px] border border-gray-100 bg-gray-50/80 p-3 flex flex-col gap-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <TrendingUp className="w-4 h-4 text-green-500 shrink-0" strokeWidth={2} />
-                  <span className="text-[12px] font-bold text-gray-900 truncate">Q3 Revenue Target</span>
+          <p className="text-[11px] text-gray-500 mb-3">
+            Firm Intelligence filters insights through these firm goals (same as the Financial Goals page).
+          </p>
+          <div className="grid grid-cols-1 gap-2.5">
+            {FIRM_GOAL_DEFINITIONS.map((goal) => {
+              const Icon =
+                goal.id === 'net_revenue_yoy'
+                  ? TrendingUp
+                  : goal.id === 'days_to_collect'
+                    ? Clock
+                    : Wallet;
+              const iconClass =
+                goal.id === 'net_revenue_yoy'
+                  ? 'text-emerald-600'
+                  : goal.id === 'days_to_collect'
+                    ? 'text-amber-600'
+                    : 'text-blue-600';
+              return (
+                <div
+                  key={goal.id}
+                  className="rounded-[8px] border border-gray-100 bg-gray-50/80 p-2.5 flex flex-col gap-1.5"
+                >
+                  <div className="flex items-start gap-1.5 min-w-0">
+                    <Icon className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${iconClass}`} strokeWidth={2} />
+                    <span className="text-[11px] font-bold text-gray-900 leading-snug">{goal.title}</span>
+                  </div>
+                  <div className="flex justify-between text-[9px] gap-2 pl-5">
+                    <span
+                      className={
+                        goal.status === 'on_track' ? 'text-emerald-700 font-semibold' : 'text-amber-800 font-semibold'
+                      }
+                    >
+                      {goal.status === 'on_track' ? 'On track' : 'Behind'}
+                    </span>
+                    <span className="text-gray-600 text-right">
+                      {goal.progressCurrentLabel} → {goal.progressTargetLabel}
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1 overflow-hidden pl-5">
+                    <div
+                      className={`h-1 rounded-full ${goal.status === 'on_track' ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                      style={{ width: `${Math.min(100, goal.progressPct)}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-              <p className="text-[10px] text-gray-500 leading-snug">$500k gross revenue by end of Q3</p>
-              <div className="space-y-1 mt-1">
-                <div className="flex justify-between text-[10px]">
-                  <span className="text-gray-600 font-medium">Progress</span>
-                  <span className="font-semibold text-gray-900">
-                    ${Math.round(fgSnap.q3Current / 1000)}k / ${Math.round(fgSnap.q3Target / 1000)}k
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                  <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${fgSnap.q3ProgressPct}%` }} />
-                </div>
-              </div>
-            </div>
-            <div className="rounded-[8px] border border-gray-100 bg-gray-50/80 p-3 flex flex-col gap-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <History className="w-4 h-4 text-blue-500 shrink-0" strokeWidth={2} />
-                  <span className="text-[12px] font-bold text-gray-900 truncate">Cash flow reserve</span>
-                </div>
-              </div>
-              <p className="text-[10px] text-gray-500 leading-snug">3 months operating expenses in reserve</p>
-              <div className="space-y-1 mt-1">
-                <div className="flex justify-between text-[10px]">
-                  <span className="text-gray-600 font-medium">Progress</span>
-                  <span className="font-semibold text-gray-900">
-                    ${Math.round(fgSnap.reserveCurrent / 1000)}k / ${Math.round(fgSnap.reserveTarget / 1000)}k
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                  <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${Math.min(100, fgSnap.reserveProgressPct)}%` }} />
-                </div>
-              </div>
-            </div>
+              );
+            })}
           </div>
         </div>
       );
@@ -563,16 +953,16 @@ export function FinanceWidgetContent({
             <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: showStratLegend ? 8 : 0 }} accessibilityLayer={false}>
               <defs key="defs">
                 <linearGradient id={`${gradientId}-cash`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#0069D1" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#0069D1" stopOpacity={0} />
+                  <stop offset="5%" stopColor="var(--chart-ocean)" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="var(--chart-ocean)" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-              <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} dy={10} />
-              <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`} dx={-10} width={50} />
+              <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+              <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} dy={10} />
+              <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`} dx={-10} width={50} />
               <Tooltip
                 key="tooltip"
-                contentStyle={{ borderRadius: '8px', fontSize: '12px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                contentStyle={{ borderRadius: '8px', fontSize: '12px', border: '1px solid var(--border)', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                 formatter={(value: number, name: string) => [`$${value.toLocaleString()}`, cashTooltipLabel(name)]}
               />
               {showStratLegend && (
@@ -583,7 +973,7 @@ export function FinanceWidgetContent({
                 name="Your firm"
                 type="monotone"
                 dataKey="cash"
-                stroke="#0069D1"
+                stroke="var(--chart-ocean)"
                 strokeWidth={2.5}
                 fillOpacity={1}
                 fill={`url(#${gradientId}-cash)`}
@@ -594,7 +984,7 @@ export function FinanceWidgetContent({
                   name="Scenario (Preview)"
                   type="monotone"
                   dataKey="altCash"
-                  stroke="#8b5cf6"
+                  stroke="var(--chart-scenario)"
                   strokeWidth={2.5}
                   strokeDasharray="5 5"
                   fillOpacity={0}
@@ -606,7 +996,7 @@ export function FinanceWidgetContent({
                   name="Peer composite"
                   type="monotone"
                   dataKey="peerCash"
-                  stroke="#0d9488"
+                  stroke="var(--chart-peer)"
                   strokeWidth={2}
                   strokeDasharray="3 3"
                   fillOpacity={0}
@@ -631,22 +1021,22 @@ export function FinanceWidgetContent({
         <div className="w-full mt-2 h-[300px] min-h-[300px]">
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: showBurnLegend ? 8 : 0 }} accessibilityLayer={false}>
-              <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-              <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} dy={10} />
-              <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`} dx={-10} width={50} />
+              <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+              <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} dy={10} />
+              <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`} dx={-10} width={50} />
               <Tooltip
                 key="tooltip"
-                cursor={{ fill: '#f9fafb' }}
-                contentStyle={{ borderRadius: '8px', fontSize: '12px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                cursor={{ fill: 'var(--surface-page)' }}
+                contentStyle={{ borderRadius: '8px', fontSize: '12px', border: '1px solid var(--border)', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                 formatter={(value: number, name: string) => [`$${value.toLocaleString()}`, burnTooltipLabel(name)]}
               />
               {showBurnLegend && <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />}
-              <Bar name="Your firm" dataKey="burn" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={barW} />
+              <Bar name="Your firm" dataKey="burn" fill="var(--chart-coral)" radius={[4, 4, 0, 0]} barSize={barW} />
               {selectedModelId && (
-                <Bar name="Scenario (Preview)" dataKey="altBurn" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={barW} />
+                <Bar name="Scenario (Preview)" dataKey="altBurn" fill="var(--chart-scenario)" radius={[4, 4, 0, 0]} barSize={barW} />
               )}
               {peerBenchmarkEnabled && (
-                <Bar name="Peer composite" dataKey="peerBurn" fill="#0d9488" radius={[4, 4, 0, 0]} barSize={barW} />
+                <Bar name="Peer composite" dataKey="peerBurn" fill="var(--chart-peer)" radius={[4, 4, 0, 0]} barSize={barW} />
               )}
             </BarChart>
           </ResponsiveContainer>
@@ -665,12 +1055,12 @@ export function FinanceWidgetContent({
         <div className="w-full mt-2 h-[300px] min-h-[300px]">
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: showRwLegend ? 8 : 0 }} accessibilityLayer={false}>
-              <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-              <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} dy={10} />
-              <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} dx={-10} width={40} />
+              <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+              <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} dy={10} />
+              <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} dx={-10} width={40} />
               <Tooltip
                 key="tooltip"
-                contentStyle={{ borderRadius: '8px', fontSize: '12px', border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                contentStyle={{ borderRadius: '8px', fontSize: '12px', border: '1px solid var(--border)', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                 formatter={(value: number, name: string) => [`${value} months`, rwTooltipLabel(name)]}
               />
               {showRwLegend && <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />}
@@ -678,21 +1068,21 @@ export function FinanceWidgetContent({
                 name="Your firm"
                 type="monotone"
                 dataKey="runway"
-                stroke="#10b981"
+                stroke="var(--chart-emerald)"
                 strokeWidth={2.5}
                 dot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
-                activeDot={{ r: 6, fill: '#10b981' }}
+                activeDot={{ r: 6, fill: 'var(--chart-emerald)' }}
               />
               {selectedModelId && (
                 <Line
                   name="Scenario (Preview)"
                   type="monotone"
                   dataKey="altRunway"
-                  stroke="#8b5cf6"
+                  stroke="var(--chart-scenario)"
                   strokeWidth={2.5}
                   strokeDasharray="5 5"
                   dot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
-                  activeDot={{ r: 6, fill: '#8b5cf6' }}
+                  activeDot={{ r: 6, fill: 'var(--chart-scenario)' }}
                 />
               )}
               {peerBenchmarkEnabled && (
@@ -700,11 +1090,11 @@ export function FinanceWidgetContent({
                   name="Peer composite"
                   type="monotone"
                   dataKey="peerRunway"
-                  stroke="#0d9488"
+                  stroke="var(--chart-peer)"
                   strokeWidth={2}
                   strokeDasharray="2 4"
                   dot={{ r: 3, strokeWidth: 2, fill: '#fff' }}
-                  activeDot={{ r: 5, fill: '#0d9488' }}
+                  activeDot={{ r: 5, fill: 'var(--chart-peer)' }}
                 />
               )}
             </LineChart>
@@ -750,18 +1140,18 @@ export function FinanceWidgetContent({
             <AreaChart data={series} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
               <defs>
                 <linearGradient id={`${gradientId}-rep`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#0069D1" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#0069D1" stopOpacity={0} />
+                  <stop offset="5%" stopColor="var(--chart-ocean)" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="var(--chart-ocean)" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#6b7280' }} width={36} />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} width={36} />
               <Tooltip
-                contentStyle={{ borderRadius: '8px', fontSize: '11px', border: '1px solid #e5e7eb' }}
+                contentStyle={{ borderRadius: '8px', fontSize: '11px', border: '1px solid var(--border)' }}
                 formatter={(v: number) => [v, rn]}
               />
-              <Area type="monotone" dataKey="value" stroke="#0069D1" strokeWidth={2} fillOpacity={1} fill={`url(#${gradientId}-rep)`} />
+              <Area type="monotone" dataKey="value" stroke="var(--chart-ocean)" strokeWidth={2} fillOpacity={1} fill={`url(#${gradientId}-rep)`} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -782,9 +1172,9 @@ export function FinanceWidgetContent({
           <div className="w-full shrink-0" style={{ height: practiceAreasChartH }}>
             <ResponsiveContainer width="100%" height={practiceAreasChartH}>
               <BarChart data={paData} margin={{ top: 4, right: 8, left: -12, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="area" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#6b7280' }} interval={0} angle={-12} textAnchor="end" height={48} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                <XAxis dataKey="area" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} interval={0} angle={-12} textAnchor="end" height={48} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} />
                 <Tooltip
                   contentStyle={{ borderRadius: '8px', fontSize: '11px' }}
                   formatter={(v: number, name: string) =>
@@ -792,8 +1182,8 @@ export function FinanceWidgetContent({
                   }
                 />
                 <Legend wrapperStyle={{ fontSize: '10px' }} />
-                <Bar dataKey="revenue" name="Revenue ($k)" fill="#0069D1" radius={[3, 3, 0, 0]} maxBarSize={28} />
-                <Bar dataKey="goalIdx" name="Goal mix (×4%)" fill="#93c5fd" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="revenue" name="Revenue ($k)" fill="var(--chart-ocean)" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="goalIdx" name="Goal mix (×4%)" fill="var(--chart-sky)" radius={[3, 3, 0, 0]} maxBarSize={28} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -822,15 +1212,15 @@ export function FinanceWidgetContent({
               <AreaChart data={billingHealthSparkline} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id={`${gradientId}-bh`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--chart-emerald)" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="var(--chart-emerald)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#6b7280' }} />
-                <YAxis domain={[80, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#6b7280' }} width={32} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} />
+                <YAxis domain={[80, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} width={32} />
                 <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '8px' }} />
-                <Area type="monotone" dataKey="v" stroke="#10b981" strokeWidth={2} fill={`url(#${gradientId}-bh)`} name="Health index" />
+                <Area type="monotone" dataKey="v" stroke="var(--chart-emerald)" strokeWidth={2} fill={`url(#${gradientId}-bh)`} name="Health index" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -846,14 +1236,14 @@ export function FinanceWidgetContent({
           <div className="w-full shrink-0" style={{ height: collectionChartH }}>
             <ResponsiveContainer width="100%" height={collectionChartH}>
               <LineChart data={collectionTrendSeries} margin={{ top: 8, right: 8, left: -12, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} />
-                <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} />
-                <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6b7280' }} width={36} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} />
+                <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} />
+                <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} width={36} />
                 <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '11px' }} />
                 <Legend wrapperStyle={{ fontSize: '10px', paddingTop: 2 }} layout="horizontal" verticalAlign="bottom" />
-                <Line yAxisId="left" type="monotone" dataKey="collections" name="Collections ($k)" stroke="#0069D1" strokeWidth={2} dot={{ r: 3 }} />
-                <Line yAxisId="right" type="monotone" dataKey="dso" name="DSO (days)" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
+                <Line yAxisId="left" type="monotone" dataKey="collections" name="Collections ($k)" stroke="var(--chart-ocean)" strokeWidth={2} dot={{ r: 3 }} />
+                <Line yAxisId="right" type="monotone" dataKey="dso" name="DSO (days)" stroke="var(--brand-amber)" strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -872,17 +1262,174 @@ export function FinanceWidgetContent({
                 data={partnerRealizationRows}
                 margin={{ top: 4, right: 16, left: 4, bottom: 4 }}
               >
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f3f4f6" />
-                <XAxis type="number" domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#6b7280' }} unit="%" />
-                <YAxis type="category" dataKey="partner" width={72} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#374151' }} />
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--chart-grid)" />
+                <XAxis type="number" domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} unit="%" />
+                <YAxis type="category" dataKey="partner" width={72} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-primary)' }} />
                 <Tooltip
                   contentStyle={{ borderRadius: '8px', fontSize: '11px' }}
                   formatter={(v: number, name: string) => [`${v}%`, name === 'realization' ? 'Realization' : 'Target']}
                 />
                 <Legend wrapperStyle={{ fontSize: '10px' }} />
-                <Bar dataKey="target" name="Target" fill="#e5e7eb" radius={[0, 4, 4, 0]} barSize={10} />
-                <Bar dataKey="realization" name="Realization" fill="#0069D1" radius={[0, 4, 4, 0]} barSize={10} />
+                <Bar dataKey="target" name="Target" fill="var(--muted)" radius={[0, 4, 4, 0]} barSize={10} />
+                <Bar dataKey="realization" name="Realization" fill="var(--chart-ocean)" radius={[0, 4, 4, 0]} barSize={10} />
               </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      );
+    }
+    case 'revenue_streams_trend': {
+      const rsData = briefingSnapshot.revenueStreamsTrend;
+      const rsH = 228;
+      return (
+        <div className="w-full flex flex-col mt-1 shrink-0">
+          <p className="text-[10px] text-gray-500 mb-2 shrink-0">
+            Gross revenue by stream ($k). Reflects executed briefing plans where applicable.
+          </p>
+          <div className="w-full shrink-0" style={{ height: rsH }}>
+            <ResponsiveContainer width="100%" height={rsH}>
+              <AreaChart data={rsData} margin={{ top: 8, right: 8, left: -12, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} width={36} />
+                <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '11px' }} />
+                <Legend wrapperStyle={{ fontSize: '10px' }} />
+                <Area
+                  type="monotone"
+                  dataKey="hourly"
+                  name={REVENUE_STREAM_LABELS.hourly}
+                  stackId="rev"
+                  stroke={REVENUE_STREAM_COLORS.hourly}
+                  fill={REVENUE_STREAM_COLORS.hourly}
+                  fillOpacity={0.9}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="flatFee"
+                  name={REVENUE_STREAM_LABELS.flatFee}
+                  stackId="rev"
+                  stroke={REVENUE_STREAM_COLORS.flatFee}
+                  fill={REVENUE_STREAM_COLORS.flatFee}
+                  fillOpacity={0.9}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="referral"
+                  name={REVENUE_STREAM_LABELS.referral}
+                  stackId="rev"
+                  stroke={REVENUE_STREAM_COLORS.referral}
+                  fill={REVENUE_STREAM_COLORS.referral}
+                  fillOpacity={0.9}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="other"
+                  name={REVENUE_STREAM_LABELS.other}
+                  stackId="rev"
+                  stroke={REVENUE_STREAM_COLORS.other}
+                  fill={REVENUE_STREAM_COLORS.other}
+                  fillOpacity={0.9}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      );
+    }
+    case 'expense_stacked_trend': {
+      const exData = briefingSnapshot.expenseStackedTrend;
+      const exH = 228;
+      return (
+        <div className="w-full flex flex-col mt-1 shrink-0">
+          <p className="text-[10px] text-gray-500 mb-2 shrink-0">
+            Operating expense categories ($k) stacked by month—mirrors expense mix on your dashboard.
+          </p>
+          <div className="w-full shrink-0" style={{ height: exH }}>
+            <ResponsiveContainer width="100%" height={exH}>
+              <BarChart data={exData} margin={{ top: 8, right: 8, left: -12, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} width={36} />
+                <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '11px' }} />
+                <Legend wrapperStyle={{ fontSize: '10px' }} />
+                <Bar dataKey="Payroll" stackId="ex" fill={EXPENSE_STACK_COLORS.Payroll} name="Payroll" maxBarSize={36} />
+                <Bar dataKey="Marketing" stackId="ex" fill={EXPENSE_STACK_COLORS.Marketing} name="Marketing" maxBarSize={36} />
+                <Bar dataKey="Software" stackId="ex" fill={EXPENSE_STACK_COLORS.Software} name="Software" maxBarSize={36} />
+                <Bar dataKey="Office" stackId="ex" fill={EXPENSE_STACK_COLORS.Office} name="Office" maxBarSize={36} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      );
+    }
+    case 'profitability_margin': {
+      const plData = briefingSnapshot.profitabilityMarginTrend;
+      const last = plData[plData.length - 1];
+      const avgMargin =
+        plData.length > 0
+          ? Math.round((plData.reduce((s, r) => s + r.operatingMarginPct, 0) / plData.length) * 10) / 10
+          : 0;
+      const plH = 200;
+      return (
+        <div className="w-full flex flex-col mt-1 gap-3 shrink-0">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="rounded-lg border border-gray-100 bg-gray-50/90 px-2.5 py-2">
+              <p className="text-[9px] font-bold uppercase text-gray-400 tracking-wide">Latest rev ($k)</p>
+              <p className="text-sm font-bold text-gray-900">{last != null ? last.revenue : '—'}</p>
+            </div>
+            <div className="rounded-lg border border-gray-100 bg-gray-50/90 px-2.5 py-2">
+              <p className="text-[9px] font-bold uppercase text-gray-400 tracking-wide">Latest OpEx ($k)</p>
+              <p className="text-sm font-bold text-gray-900">{last != null ? last.expenses : '—'}</p>
+            </div>
+            <div className="rounded-lg border border-gray-100 bg-gray-50/90 px-2.5 py-2">
+              <p className="text-[9px] font-bold uppercase text-gray-400 tracking-wide">Latest margin</p>
+              <p className="text-sm font-bold text-emerald-700">
+                {last != null ? `${last.operatingMarginPct}%` : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-100 bg-gray-50/90 px-2.5 py-2">
+              <p className="text-[9px] font-bold uppercase text-gray-400 tracking-wide">Avg margin (window)</p>
+              <p className="text-sm font-bold text-gray-900">{avgMargin}%</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-500 shrink-0">
+            Revenue vs operating expenses ($k, left) and operating margin % (right).
+          </p>
+          <div className="w-full shrink-0" style={{ height: plH }}>
+            <ResponsiveContainer width="100%" height={plH}>
+              <ComposedChart data={plData} margin={{ top: 8, right: 12, left: -12, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} />
+                <YAxis
+                  yAxisId="left"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 9, fill: 'var(--chart-tick)' }}
+                  width={36}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 9, fill: 'var(--chart-tick)' }}
+                  width={32}
+                  unit="%"
+                />
+                <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '11px' }} />
+                <Legend wrapperStyle={{ fontSize: '10px' }} />
+                <Bar yAxisId="left" dataKey="revenue" name="Revenue ($k)" fill="var(--chart-ocean)" radius={[2, 2, 0, 0]} maxBarSize={14} />
+                <Bar yAxisId="left" dataKey="expenses" name="OpEx ($k)" fill="color-mix(in srgb, var(--chart-coral) 42%, #ffffff)" radius={[2, 2, 0, 0]} maxBarSize={14} />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="operatingMarginPct"
+                  name="Operating margin %"
+                  stroke="var(--chart-emerald)"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: 'var(--chart-emerald)' }}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -898,6 +1445,15 @@ export function FinanceWidgetContent({
   }
 }
 
+export function FinanceWidgetContent(props: FinanceWidgetContentProps) {
+  return (
+    <>
+      <FinanceWidgetBody {...props} />
+      <ModellingPeerComparisonStrip widgetId={props.id} surface={props.surface} />
+    </>
+  );
+}
+
 /** Default canvas when creating a new Finances page */
 export const DEFAULT_NEW_PAGE_WIDGETS: FinancePageWidget[] = [
   { instanceId: 'w_runway', widgetId: 'runway', layoutSize: 'compact' },
@@ -906,16 +1462,46 @@ export const DEFAULT_NEW_PAGE_WIDGETS: FinancePageWidget[] = [
 
 /** Default layout for the built-in 2026 Strategic Roadmap Finances page */
 export const DEFAULT_FP_DEFAULT_WIDGETS: FinancePageWidget[] = [
-  { instanceId: 'w_brief', widgetId: 'ambient_cfo', layoutSize: 'expanded' },
   { instanceId: 'w_cash', widgetId: 'strat_cash', layoutSize: 'expanded' },
   { instanceId: 'w_burn', widgetId: 'strat_burn', layoutSize: 'expanded' },
   { instanceId: 'w_runway_s', widgetId: 'strat_runway', layoutSize: 'expanded' },
+  { instanceId: 'w_pl_margin', widgetId: 'profitability_margin', layoutSize: 'expanded' },
 ];
 
 /** Default right-rail widgets for the built-in strategic roadmap page */
 export const DEFAULT_FP_DEFAULT_SIDEBAR_WIDGETS: FinancePageWidget[] = [
   { instanceId: 'sb_modelling', widgetId: 'suggested_modelling', layoutSize: 'compact' },
 ];
+
+/** Default Financial Health Overview page (first under Finances). */
+export const DEFAULT_FP_FINANCIAL_HEALTH_WIDGETS: FinancePageWidget[] = [
+  { instanceId: 'fho_w_banner', widgetId: 'fho_personalization_banner', layoutSize: 'compact' },
+  { instanceId: 'fho_w_goals', widgetId: 'fho_firm_goals_detail', layoutSize: 'compact' },
+  { instanceId: 'fho_w_k1', widgetId: 'fho_operating_cash_detail', layoutSize: 'compact' },
+  { instanceId: 'fho_w_k2', widgetId: 'fho_revenue_detail', layoutSize: 'compact' },
+  { instanceId: 'fho_w_k3', widgetId: 'fho_ar_at_risk_detail', layoutSize: 'compact' },
+  { instanceId: 'fho_w_k4', widgetId: 'fho_runway_detail', layoutSize: 'compact' },
+  { instanceId: 'fho_w_trust', widgetId: 'fho_iolta_trust_detail', layoutSize: 'compact' },
+  { instanceId: 'fho_w_unbilled', widgetId: 'fho_unbilled_detail', layoutSize: 'compact' },
+];
+
+/** Pinned widgets for Dashboard Financial Health section (summary surface). */
+export type DashboardFinancialPin = FinancePageWidget & {
+  sourcePageId: string;
+};
+
+export const DEFAULT_DASHBOARD_FINANCIAL_PINS: DashboardFinancialPin[] = [
+  { instanceId: 'dash_fho_firm_goals_detail', widgetId: 'fho_firm_goals_detail', layoutSize: 'compact', sourcePageId: FP_FINANCIAL_HEALTH_ID },
+  { instanceId: 'dash_fho_operating_cash_detail', widgetId: 'fho_operating_cash_detail', layoutSize: 'compact', sourcePageId: FP_FINANCIAL_HEALTH_ID },
+  { instanceId: 'dash_fho_revenue_detail', widgetId: 'fho_revenue_detail', layoutSize: 'compact', sourcePageId: FP_FINANCIAL_HEALTH_ID },
+  { instanceId: 'dash_fho_ar_at_risk_detail', widgetId: 'fho_ar_at_risk_detail', layoutSize: 'compact', sourcePageId: FP_FINANCIAL_HEALTH_ID },
+  { instanceId: 'dash_fho_runway_detail', widgetId: 'fho_runway_detail', layoutSize: 'compact', sourcePageId: FP_FINANCIAL_HEALTH_ID },
+  { instanceId: 'dash_fho_iolta_trust_detail', widgetId: 'fho_iolta_trust_detail', layoutSize: 'compact', sourcePageId: FP_FINANCIAL_HEALTH_ID },
+  { instanceId: 'dash_fho_unbilled_detail', widgetId: 'fho_unbilled_detail', layoutSize: 'compact', sourcePageId: FP_FINANCIAL_HEALTH_ID },
+];
+
+/** Financial Health Overview ships without a right rail (no Modelling widget by default). */
+export const DEFAULT_FP_FINANCIAL_HEALTH_SIDEBAR_WIDGETS: FinancePageWidget[] = [];
 
 /** Default sidebar when creating a new Finances page */
 export const DEFAULT_NEW_PAGE_SIDEBAR_WIDGETS: FinancePageWidget[] = [
@@ -936,6 +1522,8 @@ type FinancePageWidgetGridProps = {
   onDigitalTwinScenario?: (id: DigitalTwinScenarioId) => void;
   mainGridColumns?: MainGridColumns;
   modellingUi?: ModellingWidgetUiBridge | null;
+  /** Pin / unpin widgets to Dashboard Financial Health (live Finances pages only) */
+  pinUi?: FinancePagePinUi | null;
 };
 
 export function FinancePageWidgetGrid({
@@ -950,6 +1538,7 @@ export function FinancePageWidgetGrid({
   onDigitalTwinScenario,
   mainGridColumns = 2,
   modellingUi,
+  pinUi,
 }: FinancePageWidgetGridProps) {
   const hydrated = hydratePlacedWidgets(widgets, reportLibrary);
   const gridCols = mainGridColumns;
@@ -964,12 +1553,53 @@ export function FinancePageWidgetGrid({
 
   return (
     <div className={mainGridClass(gridCols)}>
-      {hydrated.map((widget) => (
+      {hydrated.map((widget) => {
+        const pinKey = getFinanceWidgetPinKey({ widgetId: widget.id, reportName: widget.reportName });
+        const showPinChrome = Boolean(pinUi && !isWidgetPinDisabled(widget.id));
+        const isPinned = pinUi ? pinUi.pinnedPinKeys.has(pinKey) : false;
+        return (
         <div
           key={widget.instanceId}
-          className={`bg-white rounded-[8px] shadow-sm border border-gray-200 p-6 flex flex-col hover:border-gray-300 transition-colors relative overflow-hidden ${layoutSizeToGridClass(widget.layoutSize, gridCols)}`}
+          className={`bg-card rounded-[8px] shadow-sm border border-border flex flex-col hover:border-primary/25 transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none relative overflow-hidden ${
+            isFinancialHealthOverviewWidgetId(widget.id) ? 'p-4' : 'p-6'
+          } ${layoutSizeToGridClass(widget.layoutSize, gridCols)}`}
         >
+          {showPinChrome ? (
+            <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5">
+              <button
+                type="button"
+                title={isPinned ? 'Unpin from Dashboard' : 'Pin to Dashboard'}
+                aria-label={isPinned ? 'Unpin from Dashboard' : 'Pin to Dashboard'}
+                onClick={() => {
+                  if (isPinned) {
+                    pinUi.onUnpinPinKey(pinKey);
+                  } else {
+                    pinUi.onPin({
+                      instanceId: widget.instanceId,
+                      widgetId: widget.id,
+                      layoutSize: widget.layoutSize,
+                      ...(widget.id === EMBEDDED_REPORT_WIDGET_ID && widget.reportName
+                        ? { reportName: widget.reportName, reportView: widget.reportView }
+                        : {}),
+                    });
+                  }
+                }}
+                className={`rounded-md p-1.5 border border-transparent transition-colors ${
+                  isPinned
+                    ? 'text-primary bg-primary/10 border-primary/20 hover:bg-primary/15'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                {isPinned ? (
+                  <PinOff className="h-3.5 w-3.5" strokeWidth={2} />
+                ) : (
+                  <Pin className="h-3.5 w-3.5" strokeWidth={2} />
+                )}
+              </button>
+            </div>
+          ) : null}
           {widget.id !== 'ambient_cfo' &&
+            !isFinancialHealthOverviewWidgetId(widget.id) &&
             widget.id !== 'suggested_modelling' &&
             widget.id !== 'digital_twin' && (
             <div className="mb-4">
@@ -993,7 +1623,7 @@ export function FinancePageWidgetGrid({
               onChange={(v) => onUpdateWidget(widget.instanceId, { reportView: v })}
             />
           )}
-          <div className="flex-1 text-gray-600 text-sm min-w-0">
+          <div className={`flex-1 text-gray-600 text-sm min-w-0 ${showPinChrome ? 'pr-7' : ''}`}>
             <FinanceWidgetContent
               id={widget.id}
               instanceId={widget.instanceId}
@@ -1008,7 +1638,8 @@ export function FinancePageWidgetGrid({
             />
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -1024,6 +1655,7 @@ type FinancePageSidebarWidgetStackProps = {
   onUpdateWidget?: (instanceId: string, patch: Partial<FinancePageWidget>) => void;
   onDigitalTwinScenario?: (id: DigitalTwinScenarioId) => void;
   modellingUi?: ModellingWidgetUiBridge | null;
+  pinUi?: FinancePagePinUi | null;
 };
 
 /** Single-column stack for Finances page right rail */
@@ -1038,6 +1670,7 @@ export function FinancePageSidebarWidgetStack({
   onUpdateWidget,
   onDigitalTwinScenario,
   modellingUi,
+  pinUi,
 }: FinancePageSidebarWidgetStackProps) {
   const hydrated = hydratePlacedWidgets(widgets, reportLibrary).map((w) => ({
     ...w,
@@ -1054,12 +1687,51 @@ export function FinancePageSidebarWidgetStack({
 
   return (
     <div className="flex flex-col gap-4 w-full min-w-0">
-      {hydrated.map((widget) => (
+      {hydrated.map((widget) => {
+        const pinKey = getFinanceWidgetPinKey({ widgetId: widget.id, reportName: widget.reportName });
+        const showPinChrome = Boolean(pinUi && !isWidgetPinDisabled(widget.id));
+        const isPinned = pinUi ? pinUi.pinnedPinKeys.has(pinKey) : false;
+        return (
         <div
           key={widget.instanceId}
-          className="bg-white rounded-[8px] shadow-sm border border-gray-200 p-5 flex flex-col hover:border-gray-300 transition-colors relative overflow-hidden"
+          className="bg-card rounded-[8px] shadow-sm border border-border p-5 flex flex-col hover:border-primary/25 transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none relative overflow-hidden"
         >
+          {showPinChrome ? (
+            <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5">
+              <button
+                type="button"
+                title={isPinned ? 'Unpin from Dashboard' : 'Pin to Dashboard'}
+                aria-label={isPinned ? 'Unpin from Dashboard' : 'Pin to Dashboard'}
+                onClick={() => {
+                  if (isPinned) {
+                    pinUi.onUnpinPinKey(pinKey);
+                  } else {
+                    pinUi.onPin({
+                      instanceId: widget.instanceId,
+                      widgetId: widget.id,
+                      layoutSize: widget.layoutSize,
+                      ...(widget.id === EMBEDDED_REPORT_WIDGET_ID && widget.reportName
+                        ? { reportName: widget.reportName, reportView: widget.reportView }
+                        : {}),
+                    });
+                  }
+                }}
+                className={`rounded-md p-1.5 border border-transparent transition-colors ${
+                  isPinned
+                    ? 'text-primary bg-primary/10 border-primary/20 hover:bg-primary/15'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                {isPinned ? (
+                  <PinOff className="h-3.5 w-3.5" strokeWidth={2} />
+                ) : (
+                  <Pin className="h-3.5 w-3.5" strokeWidth={2} />
+                )}
+              </button>
+            </div>
+          ) : null}
           {widget.id !== 'ambient_cfo' &&
+            !isFinancialHealthOverviewWidgetId(widget.id) &&
             widget.id !== 'suggested_modelling' &&
             widget.id !== 'digital_twin' && (
             <div className="mb-4">
@@ -1083,7 +1755,7 @@ export function FinancePageSidebarWidgetStack({
               onChange={(v) => onUpdateWidget(widget.instanceId, { reportView: v })}
             />
           )}
-          <div className="flex-1 text-gray-600 text-sm min-w-0">
+          <div className={`flex-1 text-gray-600 text-sm min-w-0 ${showPinChrome ? 'pr-7' : ''}`}>
             <FinanceWidgetContent
               id={widget.id}
               instanceId={widget.instanceId}
@@ -1098,7 +1770,8 @@ export function FinancePageSidebarWidgetStack({
             />
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

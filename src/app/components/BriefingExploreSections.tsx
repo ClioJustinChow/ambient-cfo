@@ -4,7 +4,7 @@ import type { BriefingExploreContent } from '../data/briefingPanelContent';
 import { FirmWideDrillDownLadder } from './FirmWideDrillDownLadder';
 import { cn } from './ui/utils';
 
-/** Shared body for Explore data: AI analysis, firm-wide ladder, recommended actions (panel + Inbox inline). */
+/** Shared body for Explore data: AI analysis, firm-wide ladder, recommended actions (briefing side panel). */
 export function BriefingExploreSections({
   explore,
   className,

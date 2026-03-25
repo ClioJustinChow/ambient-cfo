@@ -1,10 +1,10 @@
-# Ambient CFO
+# Firm Intelligence
 
 **Git repository root:** this folder (`ambient-cfo`). Do not initialize Git in the parent `prototyping` directory if you want a clean Vercel import—connect Vercel to a repo whose root is this project.
 
-Clio Accounting–style financial dashboard with **Ambient CFO**: search, natural-language queries, strategic modeling, reports, and recovery-plan flows.
+Clio Accounting–style financial dashboard with **Firm Intelligence**: search, natural-language queries, strategic modeling, reports, and recovery-plan flows.
 
-Original design reference: [Figma – Ambient CFO](https://www.figma.com/design/Op5jvZRSleVpduRQWkDwK3/Ambient-CFO).
+Original design reference: [Figma – Firm Intelligence](https://www.figma.com/design/Op5jvZRSleVpduRQWkDwK3/Ambient-CFO).
 
 ## Setup
 

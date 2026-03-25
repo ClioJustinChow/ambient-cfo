@@ -1,13 +1,14 @@
 import * as React from 'react';
-import { Sparkles, Send } from 'lucide-react';
+import { Calendar, Sparkles, Send } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import type { BriefingInsightId } from '../../data/briefingPanelContent';
+import { countMergedTodayTodos } from '../../data/todayTodoMerge';
+import { TodayPanel } from './TodayPanel';
 
 export interface FloatingChatBarProps {
   onOpen: () => void;
   onSubmitMessage?: (message: string) => void;
-  notificationCount?: number;
   isVisible: boolean;
-  onInboxClick?: () => void;
   /** Renders above suggested queries (e.g. global “Navigate to” results). */
   navigationSection?: React.ReactNode;
   suggestedQuestions: string[];
@@ -15,23 +16,44 @@ export interface FloatingChatBarProps {
   onChatInputChange: (value: string) => void;
   placeholder?: string;
   brandColor?: string;
+  /** Briefing items already executed (hidden in Today). */
+  executedBriefingInsightIds?: readonly BriefingInsightId[];
+  onBriefingTakeAction?: (insightId: string) => void;
+  onBriefingExplore?: (insightId: string) => void;
 }
+
+const TODAY_TITLE_ID = 'ambient-cfo-today-panel-title';
 
 export function FloatingChatBar({
   onOpen,
   onSubmitMessage,
-  notificationCount = 0,
   isVisible,
-  onInboxClick,
   navigationSection,
   suggestedQuestions,
   chatInput,
   onChatInputChange,
-  placeholder = 'Search the product or ask your Ambient CFO…',
+  placeholder = 'Search the product or ask your Firm Intelligence…',
   brandColor = '#0069D1',
+  executedBriefingInsightIds = [],
+  onBriefingTakeAction,
+  onBriefingExplore,
 }: FloatingChatBarProps) {
   const [isFocused, setIsFocused] = React.useState(false);
-  const showSuggestions = isFocused;
+  const [todayOpen, setTodayOpen] = React.useState(false);
+  const barRef = React.useRef<HTMLDivElement>(null);
+
+  const showSuggestions = isFocused && !todayOpen;
+
+  React.useEffect(() => {
+    if (!todayOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const el = barRef.current;
+      if (!el || !(e.target instanceof Node) || el.contains(e.target)) return;
+      setTodayOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [todayOpen]);
 
   const handleSparkleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -40,6 +62,7 @@ export function FloatingChatBar({
   };
 
   const submitText = (text: string) => {
+    setTodayOpen(false);
     const trimmed = text.trim();
     if (!trimmed) return;
     onOpen();
@@ -57,39 +80,76 @@ export function FloatingChatBar({
     }
   };
 
+  const takeAction = onBriefingTakeAction ?? (() => {});
+  const explore = onBriefingExplore ?? (() => {});
+
   if (!isVisible) return null;
 
   const filteredSuggestions = suggestedQuestions.filter((q) =>
     q.toLowerCase().includes(chatInput.toLowerCase()),
   );
 
+  const todayTodoCount = countMergedTodayTodos(executedBriefingInsightIds, suggestedQuestions);
+
   return (
     <div className="pointer-events-none fixed bottom-6 left-0 right-0 z-40 flex flex-col items-center justify-end px-4 md:left-[239px] md:px-8">
-      <div className="pointer-events-auto w-full max-w-3xl">
+      <div ref={barRef} className="pointer-events-auto w-full max-w-3xl">
         <div className="relative z-10 rounded-full border border-gray-200 bg-white p-2 shadow-2xl">
-          <div className="flex items-center px-2 py-1">
-            {onInboxClick ? (
-              <button
-                type="button"
-                aria-label="Open inbox"
-                onClick={onInboxClick}
-                className="relative mr-3 shrink-0 rounded-[8px] p-0.5 transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          <AnimatePresence>
+            {todayOpen ? (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.15 }}
+                className="pointer-events-auto absolute bottom-full left-0 z-[60] mb-2 w-full"
               >
-                <img
-                  src="/clio-accounting-icon.png"
-                  alt=""
-                  width={22}
-                  height={22}
-                  className="h-[22px] w-[22px] shrink-0 rounded-[6px] object-cover"
-                  aria-hidden
+                <TodayPanel
+                  titleId={TODAY_TITLE_ID}
+                  executedBriefingInsightIds={executedBriefingInsightIds}
+                  suggestedQueries={suggestedQuestions}
+                  onBriefingTakeAction={(id) => {
+                    setTodayOpen(false);
+                    takeAction(id);
+                  }}
+                  onBriefingExplore={(id) => {
+                    setTodayOpen(false);
+                    explore(id);
+                  }}
+                  onSuggestedQueryPick={(q) => {
+                    setTodayOpen(false);
+                    submitText(q);
+                  }}
+                  brandColor={brandColor}
                 />
-                {notificationCount > 0 ? (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-0.5 text-[9px] font-bold text-white">
-                    {notificationCount > 9 ? '9+' : notificationCount}
-                  </span>
-                ) : null}
-              </button>
+              </motion.div>
             ) : null}
+          </AnimatePresence>
+
+          <div className="flex items-center px-2 py-1">
+            <button
+              type="button"
+              aria-label={`Today's to do — ${todayTodoCount} task${todayTodoCount === 1 ? '' : 's'}`}
+              aria-expanded={todayOpen}
+              aria-controls={todayOpen ? 'ambient-cfo-today-panel' : undefined}
+              onClick={(e) => {
+                e.stopPropagation();
+                setTodayOpen((o) => !o);
+              }}
+              className={`relative mr-1.5 flex shrink-0 items-center gap-1 rounded-[8px] px-2 py-2 text-xs font-semibold transition-colors max-sm:px-1.5 ${
+                todayOpen
+                  ? 'bg-blue-50 text-blue-800 ring-1 ring-blue-200'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <Calendar className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+              <span className="max-sm:sr-only">Today</span>
+              {todayTodoCount > 0 ? (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white">
+                  {todayTodoCount > 9 ? '9+' : todayTodoCount}
+                </span>
+              ) : null}
+            </button>
 
             <button
               type="button"
@@ -105,7 +165,10 @@ export function FloatingChatBar({
               value={chatInput}
               onChange={(e) => onChatInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              onFocus={() => setIsFocused(true)}
+              onFocus={() => {
+                setTodayOpen(false);
+                setIsFocused(true);
+              }}
               onBlur={() => {
                 window.setTimeout(() => setIsFocused(false), 200);
               }}
@@ -138,7 +201,7 @@ export function FloatingChatBar({
                 {navigationSection}
 
                 <p className="mb-2 px-2 text-xs font-semibold text-gray-500">
-                  {chatInput ? 'Ask Ambient CFO' : 'Suggested queries'}
+                  {chatInput ? 'Ask Firm Intelligence' : 'Suggested queries'}
                 </p>
                 <div className="custom-scrollbar flex max-h-[200px] flex-col gap-1 overflow-y-auto">
                   {chatInput.trim() ? (

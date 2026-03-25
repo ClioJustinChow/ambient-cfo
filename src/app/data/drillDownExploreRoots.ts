@@ -170,3 +170,60 @@ export const drillDownRootInsight3: DrillDownNode = {
     },
   ],
 };
+
+/** Cash flow action plan — firm operating cash → finance/ops → payroll window → Clio Capital bridge */
+export const drillDownRootInsight4: DrillDownNode = {
+  level: 'firm',
+  id: 'insight-4-firm',
+  title: 'Firm operating cash',
+  subtitle: '60-day forward view · operating accounts',
+  metrics: [
+    { label: 'Projected shortfall (modeled)', value: '47 days', tone: 'negative' },
+    { label: '30+ day overdue (4 inv.)', value: '$47.2k', tone: 'negative' },
+    { label: 'Unbilled ready-to-bill', value: '$23.8k', tone: 'neutral' },
+  ],
+  narrative:
+    'Firm-wide, collections velocity and delayed billing are compressing the path to your 60-day cash reserve. The model ties the 47-day gap to overdue receivables plus uninvoiced WIP before the next payroll cycle—not a single client concentration.',
+  children: [
+    {
+      level: 'practice_area',
+      id: 'insight-4-pa-finance',
+      title: 'Finance & operations',
+      subtitle: 'Cash positioning · billing ops',
+      metrics: [
+        { label: 'Days cash on hand (post-payroll)', value: 'Below policy', tone: 'negative' },
+        { label: 'Matters with bill-ready WIP', value: '3', tone: 'neutral' },
+      ],
+      narrative:
+        'Finance sees the same signal as the briefing: four invoices over 30 days total $47.2k, and $23.8k of time is coded and ready to invoice across three matters. Pulling both levers is what closes the modeled shortfall without deferring payroll.',
+      children: [
+        {
+          level: 'matter',
+          id: 'insight-4-matter-payroll',
+          title: 'Payroll run · Thursday',
+          subtitle: 'Next fixed cash outflow vs operating balance',
+          metrics: [
+            { label: 'Estimated net payroll', value: '$186k', tone: 'neutral' },
+            { label: 'Modeled cash before payroll', value: 'Tight', tone: 'negative' },
+          ],
+          narrative:
+            'The mid-month risk is timing: payroll is a hard date while collections and invoicing are in flight. A working-capital bridge (e.g. Clio Capital) is modeled as coverage only until reminders and invoices convert—not a substitute for those actions.',
+          children: [
+            {
+              level: 'person',
+              id: 'insight-4-person-clio-capital',
+              title: 'Clio Capital · line of credit',
+              subtitle: 'Working capital · firm application',
+              metrics: [
+                { label: 'Suggested facility (prototype)', value: 'Payroll cover', tone: 'neutral' },
+                { label: 'Application status', value: 'Not submitted', tone: 'neutral' },
+              ],
+              narrative:
+                'One-click submission stages the firm’s application for review. Firm Intelligence ties the amount to the payroll window while collections and invoicing execute—keeping the 60-day reserve goal intact through Q2 once the plan runs.',
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};

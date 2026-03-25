@@ -2,6 +2,12 @@
  * Prototype report document rows + embeddable summary/chart seed data.
  */
 
+import {
+  DEFAULT_PROFIT_LOSS_VIEW_STATE,
+  deriveProfitLossTotals,
+  profitLossRowsToLegacyTable,
+} from './profitLossReportModel';
+
 export type ReportTableRow = {
   account: string;
   amount: string;
@@ -13,23 +19,7 @@ export type ReportTableRow = {
 
 export function getReportTableRows(reportName: string): ReportTableRow[] {
   if (reportName === 'Profit and Loss') {
-    return [
-      { account: 'Income', amount: '', isHeader: true },
-      { account: 'Legal Services Revenue', amount: '$125,000.00', isHeader: false },
-      { account: 'Consulting Fees', amount: '$45,500.00', isHeader: false },
-      { account: 'Total Income', amount: '$170,500.00', isHeader: true, isTotal: true },
-      { account: 'Cost of Goods Sold', amount: '', isHeader: true },
-      { account: 'Contractor Expenses', amount: '$15,000.00', isHeader: false },
-      { account: 'Software Licenses (Billable)', amount: '$2,500.00', isHeader: false },
-      { account: 'Total COGS', amount: '$17,500.00', isHeader: true, isTotal: true },
-      { account: 'Gross Profit', amount: '$153,000.00', isHeader: true, isTotal: true },
-      { account: 'Operating Expenses', amount: '', isHeader: true },
-      { account: 'Rent', amount: '$12,000.00', isHeader: false },
-      { payroll: true, account: 'Payroll', amount: '$85,000.00', isHeader: false },
-      { account: 'Marketing', amount: '$8,500.00', isHeader: false },
-      { account: 'Total Operating Expenses', amount: '$105,500.00', isHeader: true, isTotal: true },
-      { account: 'Net Income', amount: '$47,500.00', isHeader: true, isTotal: true, isGrandTotal: true },
-    ];
+    return profitLossRowsToLegacyTable(DEFAULT_PROFIT_LOSS_VIEW_STATE) as ReportTableRow[];
   }
   if (reportName === 'Balance Sheet') {
     return [
@@ -46,6 +36,81 @@ export function getReportTableRows(reportName: string): ReportTableRow[] {
       { account: 'Retained Earnings', amount: '$47,500.00', isHeader: false },
       { account: 'Total Equity', amount: '$247,800.00', isHeader: true, isTotal: true },
       { account: 'Total Liabilities and Equity', amount: '$310,200.00', isHeader: true, isTotal: true, isGrandTotal: true },
+    ];
+  }
+  if (reportName === 'Cash Flow Statement') {
+    return [
+      { account: 'Operating Activity', amount: '', isHeader: true },
+      { account: 'Cash Receipts from Customers', amount: '$165,000.00', isHeader: false },
+      { account: 'Cash Paid to Suppliers', amount: '-$45,000.00', isHeader: false },
+      { account: 'Net Cash from Operating Activities', amount: '$120,000.00', isHeader: true, isTotal: true },
+      { account: 'Investing Activity', amount: '', isHeader: true },
+      { account: 'Purchase of Equipment', amount: '-$15,000.00', isHeader: false },
+      { account: 'Net Cash from Investing Activities', amount: '-$15,000.00', isHeader: true, isTotal: true },
+      { account: 'Net Increase in Cash', amount: '$105,000.00', isHeader: true, isTotal: true, isGrandTotal: true },
+    ];
+  }
+  if (reportName === 'A/R Aging') {
+    return [
+      { account: 'A/R by bucket', amount: '', isHeader: true },
+      { account: 'Current (0–30)', amount: '$128,400.00', isHeader: false },
+      { account: '31–60 days', amount: '$62,300.00', isHeader: false },
+      { account: '61–90 days', amount: '$38,900.00', isHeader: false },
+      { account: '90+ days', amount: '$24,800.00', isHeader: false },
+      { account: 'Total outstanding A/R', amount: '$254,400.00', isHeader: true, isTotal: true, isGrandTotal: true },
+    ];
+  }
+  if (reportName === 'A/P Aging') {
+    return [
+      { account: 'A/P by bucket', amount: '', isHeader: true },
+      { account: 'Current (0–30)', amount: '$22,100.00', isHeader: false },
+      { account: '31–60 days', amount: '$14,600.00', isHeader: false },
+      { account: '61–90 days', amount: '$8,200.00', isHeader: false },
+      { account: '90+ days', amount: '$3,400.00', isHeader: false },
+      { account: 'Total outstanding A/P', amount: '$48,300.00', isHeader: true, isTotal: true, isGrandTotal: true },
+    ];
+  }
+  if (reportName === 'General Ledger') {
+    return [
+      { account: 'Recent activity (sample)', amount: '', isHeader: true },
+      { account: '1010 · Operating cash — Client receipt', amount: '$12,400.00', isHeader: false },
+      { account: '1200 · A/R — Invoice #4482', amount: '$8,900.00', isHeader: false },
+      { account: '5200 · Payroll expense', amount: '-$24,000.00', isHeader: false },
+      { account: '6100 · Rent expense', amount: '-$18,500.00', isHeader: false },
+      { account: 'Period net change (sample)', amount: '-$21,200.00', isHeader: true, isTotal: true, isGrandTotal: true },
+    ];
+  }
+  if (reportName === 'Trial Balance') {
+    return [
+      { account: 'Assets & debits', amount: '', isHeader: true },
+      { account: 'Cash', amount: '$245,000.00', isHeader: false },
+      { account: 'Accounts Receivable', amount: '$65,200.00', isHeader: false },
+      { account: 'Liabilities & credits', amount: '', isHeader: true },
+      { account: 'Accounts Payable', amount: '$12,400.00', isHeader: false },
+      { account: 'Equity (net)', amount: '$247,800.00', isHeader: false },
+      { account: 'Trial balance check', amount: '$50,000.00', isHeader: true, isTotal: true, isGrandTotal: true },
+    ];
+  }
+  if (reportName === 'Expense by Category') {
+    return [
+      { account: 'Operating expenses', amount: '', isHeader: true },
+      { account: 'Payroll & benefits', amount: '$142,000.00', isHeader: false },
+      { account: 'Occupancy & rent', amount: '$28,000.00', isHeader: false },
+      { account: 'Technology & software', amount: '$19,400.00', isHeader: false },
+      { account: 'Marketing & business development', amount: '$11,200.00', isHeader: false },
+      { account: 'Professional fees', amount: '$15,400.00', isHeader: false },
+      { account: 'Other G&A', amount: '$9,800.00', isHeader: false },
+      { account: 'Total expenses', amount: '$225,800.00', isHeader: true, isTotal: true, isGrandTotal: true },
+    ];
+  }
+  if (reportName === 'Revenue by Practice Area') {
+    return [
+      { account: 'Fee revenue by practice', amount: '', isHeader: true },
+      { account: 'Personal Injury', amount: '$198,400.00', isHeader: false },
+      { account: 'Family Law', amount: '$124,200.00', isHeader: false },
+      { account: 'Estate Planning', amount: '$96,800.00', isHeader: false },
+      { account: 'Corporate / other', amount: '$52,600.00', isHeader: false },
+      { account: 'Total fee revenue', amount: '$472,000.00', isHeader: true, isTotal: true, isGrandTotal: true },
     ];
   }
   return [
@@ -71,14 +136,22 @@ export function getReportSummaryContent(reportName: string): {
     { label: 'Basis', value: 'Accrual' },
   ];
   if (reportName === 'Profit and Loss') {
+    const t = deriveProfitLossTotals(DEFAULT_PROFIT_LOSS_VIEW_STATE);
+    const fmtK = (n: number) => {
+      const abs = Math.round(Math.abs(n)).toLocaleString('en-US');
+      return n < 0 ? `($${abs})` : `$${abs}`;
+    };
+    const opExRatio =
+      t.totalRevenue > 0 ? Math.round((t.totalExpenses / t.totalRevenue) * 100) : 0;
     return {
       kpis: [
         ...base,
-        { label: 'Net income', value: '$47,500' },
-        { label: 'Revenue', value: '$170,500' },
-        { label: 'OpEx ratio', value: '62%' },
+        { label: 'Net income', value: fmtK(t.netIncome) },
+        { label: 'Revenue', value: fmtK(t.totalRevenue) },
+        { label: 'OpEx ratio', value: `${opExRatio}%` },
       ],
-      insight: 'Net income is ahead of internal plan driven by legal services revenue; watch payroll growth vs collections.',
+      insight:
+        'Default firm-wide view matches the PDF-style chart. Open the full report for matter filters, accrual vs cash, and legal expense lenses.',
     };
   }
   if (reportName === 'Balance Sheet') {

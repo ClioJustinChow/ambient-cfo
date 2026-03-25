@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import type { BriefingInsightId } from '../data/briefingPanelContent';
 import { BRIEFING_INSIGHT_ITEMS } from '../data/briefingInsights';
+import { cn } from './ui/utils';
 
 const NO_EXECUTED_INSIGHTS: readonly BriefingInsightId[] = [];
 
@@ -23,7 +24,7 @@ export const ThisWeeksBriefing = ({
   /** Insights whose recommended plan was executed — hidden from the list */
   executedInsightIds?: readonly BriefingInsightId[];
 }) => {
-  const [expandedId, setExpandedId] = useState<string>('insight-1');
+  const [expandedId, setExpandedId] = useState<string>(() => BRIEFING_INSIGHT_ITEMS[0]?.id ?? 'insight-4');
 
   const hiddenIds = executedInsightIds ?? NO_EXECUTED_INSIGHTS;
 
@@ -80,21 +81,33 @@ export const ThisWeeksBriefing = ({
           visibleInsights.map((insight) => {
             const isExpanded = expandedId === insight.id;
             const Icon = insight.icon;
+            const isFeatured = visibleInsights[0]?.id === insight.id;
 
             return (
               <div 
                 key={insight.id} 
-                className={`bg-gray-50 border ${isExpanded ? 'border-blue-200 shadow-sm' : 'border-gray-100'} rounded-[8px] p-4 flex gap-4 items-start transition-all duration-200`}
+                className={cn(
+                  'rounded-[8px] p-4 flex gap-4 items-start transition-all duration-200 bg-gray-50 border',
+                  isFeatured && 'ring-2 ring-primary/30 border-primary/40 shadow-md',
+                  !isFeatured && (isExpanded ? 'border-blue-200 shadow-sm' : 'border-gray-100'),
+                )}
               >
                 <div className={`${insight.iconBg} ${insight.iconColor} p-2 rounded-[6px] shrink-0`}>
                   <Icon className="w-5 h-5" strokeWidth={1.5} />
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <div 
-                    className="flex items-center justify-between mb-1 cursor-pointer"
+                    className="flex items-center justify-between mb-1 cursor-pointer gap-2"
                     onClick={() => setExpandedId(isExpanded ? '' : insight.id)}
                   >
-                    <h4 className={`${subtitleSize} font-semibold text-gray-900`}>{insight.title}</h4>
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <h4 className={`${subtitleSize} font-semibold text-gray-900`}>{insight.title}</h4>
+                      {isFeatured && (
+                        <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
+                          Priority
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-3">
                       <span className={`${smallTextSize} text-gray-500 flex items-center gap-1`}>
                         <Clock className="w-3 h-3" /> {insight.time}
@@ -108,11 +121,7 @@ export const ThisWeeksBriefing = ({
                   {isExpanded && (
                     <div className="animate-in slide-in-from-top-2 duration-200">
                       <p className={`${textSize} text-gray-600 mb-3 mt-2 leading-relaxed`}>
-                        {insight.id === 'insight-1' ? (
-                          <>Based on current matter activity and historical billing patterns, there is a <strong>$45k</strong> exposure risk for the pending invoices with <em>Smith & Associates</em>. Resolving this within 5 days is required to maintain your Q3 cash flow targets.</>
-                        ) : (
-                          insight.description
-                        )}
+                        {insight.description}
                       </p>
                       <div className="flex items-center gap-3 mt-3">
                         <button 
