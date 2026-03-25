@@ -24,6 +24,7 @@ import {
   Shield,
   Pin,
   PinOff,
+  ChevronRight,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -68,11 +69,12 @@ import {
   collectionTrendSeries,
   partnerRealizationRows,
 } from '../data/dashboardMetricSeed';
+import { getCatalogWidgetFullRows, getCatalogWidgetSummary } from '../data/widgetViewSummaries';
+import { getFinanceWidgetExploreAction } from '../data/financeWidgetDrillDown';
 import { DIGITAL_TWIN_CATALOG_DESC } from '../data/prototypePersona';
 import { DigitalTwinWidget, type DigitalTwinScenarioId } from './DigitalTwinWidget';
 import { SuggestedModellingWidget, type ModellingWidgetUiBridge } from './SuggestedModellingWidget';
 import {
-  FhoPersonalizationBanner,
   FhoFirmGoalsDetailWidget,
   FhoOperatingCashDetailWidget,
   FhoRevenueDetailWidget,
@@ -149,13 +151,6 @@ export type HydratedPlacedWidget = {
 };
 
 export const WIDGET_CATALOG = [
-  {
-    id: 'fho_personalization_banner',
-    title: 'Firm Intelligence introduction',
-    category: 'Financial Health',
-    icon: Sparkles,
-    desc: 'Personalized overview message from Firm Intelligence',
-  },
   {
     id: 'fho_firm_goals_detail',
     title: 'Firm goals (detail)',
@@ -306,9 +301,14 @@ export const WIDGET_CATALOG = [
 
 export type FinanceCatalogWidgetId = (typeof WIDGET_CATALOG)[number]['id'];
 
+export type FinanceWidgetExplorePayload = {
+  widgetId: string;
+  reportName?: string;
+  fallbackTitle?: string;
+};
+
 export function defaultLayoutSizeForWidgetId(widgetId: string): WidgetLayoutSize {
   if (
-    widgetId === 'fho_personalization_banner' ||
     widgetId === 'ambient_cfo' ||
     widgetId === 'digital_twin' ||
     widgetId === 'financial_goals' ||
@@ -341,6 +341,8 @@ export function hydratePlacedWidgets(
 ): HydratedPlacedWidget[] {
   const out: HydratedPlacedWidget[] = [];
   for (const p of placed) {
+    /** Page chrome on Financial Health — not a canvas widget (legacy rows are dropped). */
+    if (p.widgetId === 'fho_personalization_banner') continue;
     if (p.widgetId === EMBEDDED_REPORT_WIDGET_ID) {
       const rn = p.reportName?.trim();
       if (!rn) continue;
@@ -363,7 +365,8 @@ export function hydratePlacedWidgets(
     const c = WIDGET_CATALOG.find((w) => w.id === p.widgetId);
     if (c) {
       const layoutSize: WidgetLayoutSize = p.layoutSize ?? defaultLayoutSizeForWidgetId(p.widgetId);
-      out.push({ ...c, instanceId: p.instanceId, layoutSize });
+      const reportView = normalizeReportView(p.reportView);
+      out.push({ ...c, instanceId: p.instanceId, layoutSize, reportView });
     }
   }
   return out;
@@ -375,9 +378,8 @@ export function financePageWidgetsFromHydrated(hydrated: HydratedPlacedWidget[])
     instanceId: w.instanceId,
     widgetId: w.id,
     layoutSize: w.layoutSize,
-    ...(w.id === EMBEDDED_REPORT_WIDGET_ID && w.reportName
-      ? { reportName: w.reportName, reportView: normalizeReportView(w.reportView) }
-      : {}),
+    reportView: normalizeReportView(w.reportView),
+    ...(w.id === EMBEDDED_REPORT_WIDGET_ID && w.reportName ? { reportName: w.reportName } : {}),
   }));
 }
 
@@ -411,7 +413,7 @@ export function ReportViewToolbar({
 }) {
   const active = normalizeReportView(value);
   return (
-    <div className={`flex flex-wrap gap-1 ${className}`} role="group" aria-label="Report display mode">
+    <div className={`flex flex-wrap gap-1 ${className}`} role="group" aria-label="Widget display mode">
       {REPORT_VIEW_OPTIONS.map((m) => (
         <button
           key={m.id}
@@ -498,6 +500,66 @@ function DashboardPinEmbeddedReportSummary({
   );
 }
 
+function CatalogTriSummaryPanel({
+  kpis,
+  insight,
+}: {
+  kpis: { label: string; value: string }[];
+  insight: string;
+}) {
+  return (
+    <div className="mt-2 space-y-3">
+      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {kpis.map((k) => (
+          <li
+            key={k.label}
+            className="flex justify-between gap-2 text-[11px] rounded-md border border-gray-100 bg-gray-50/80 px-2.5 py-1.5"
+          >
+            <span className="text-gray-500">{k.label}</span>
+            <span className="font-semibold text-gray-900">{k.value}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-gray-600 leading-snug border-t border-gray-100 pt-2">{insight}</p>
+    </div>
+  );
+}
+
+function CatalogFullDetailTable({ rows }: { rows: { label: string; value: string }[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-2 rounded-md border border-gray-100 overflow-hidden">
+      <table className="w-full text-[11px]">
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={`${r.label}-${i}`} className="border-b border-gray-100 last:border-0">
+              <td className="px-2.5 py-1.5 text-gray-500 align-top w-[40%]">{r.label}</td>
+              <td className="px-2.5 py-1.5 font-medium text-gray-900">{r.value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function catalogTriMode(
+  rv: ReportWidgetView,
+  chart: React.ReactNode,
+  summary: { kpis: { label: string; value: string }[]; insight: string },
+  full: React.ReactNode,
+): React.ReactNode {
+  if (rv === 'summary') return <CatalogTriSummaryPanel {...summary} />;
+  if (rv === 'full') {
+    return (
+      <div className="w-full min-h-[200px] max-h-[min(70vh,520px)] overflow-y-auto rounded-lg border border-gray-100 bg-white -mx-1 p-2 space-y-4">
+        {full}
+      </div>
+    );
+  }
+  return chart;
+}
+
 type FinanceWidgetContentProps = {
   id: string;
   instanceId?: string;
@@ -568,13 +630,25 @@ function FinanceWidgetBody({
   ];
   const chartId = instanceId || Math.random().toString(36).substr(2, 9);
   const gradientId = `color-${id}-${chartId}`;
+  const lastStrategicRow = chartData[chartData.length - 1];
+
+  const tri = (widgetKey: string, chartEl: React.ReactNode) => {
+    const s = getCatalogWidgetSummary(widgetKey, briefingSnapshot, lastStrategicRow);
+    if (!s) return chartEl;
+    const fullRows = getCatalogWidgetFullRows(widgetKey, briefingSnapshot, lastStrategicRow);
+    return catalogTriMode(
+      reportView,
+      chartEl,
+      s,
+      <>
+        <div className="min-h-[140px]">{chartEl}</div>
+        <CatalogFullDetailTable rows={fullRows} />
+      </>,
+    );
+  };
 
   if (surface === 'dashboardSummary') {
     switch (id) {
-      case 'fho_personalization_banner':
-        return (
-          <FhoPersonalizationBanner surface="dashboardSummary" onOpenFullFinancialHealth={onOpenFullFinancialHealth} />
-        );
       case 'fho_firm_goals_detail':
         return <FhoFirmGoalsDetailWidget surface="dashboardSummary" />;
       case 'fho_operating_cash_detail':
@@ -610,22 +684,20 @@ function FinanceWidgetBody({
   }
 
   switch (id) {
-    case 'fho_personalization_banner':
-      return <FhoPersonalizationBanner />;
     case 'fho_firm_goals_detail':
-      return <FhoFirmGoalsDetailWidget />;
+      return tri('fho_firm_goals_detail', <FhoFirmGoalsDetailWidget />);
     case 'fho_operating_cash_detail':
-      return <FhoOperatingCashDetailWidget />;
+      return tri('fho_operating_cash_detail', <FhoOperatingCashDetailWidget />);
     case 'fho_revenue_detail':
-      return <FhoRevenueDetailWidget />;
+      return tri('fho_revenue_detail', <FhoRevenueDetailWidget />);
     case 'fho_ar_at_risk_detail':
-      return <FhoArAtRiskDetailWidget />;
+      return tri('fho_ar_at_risk_detail', <FhoArAtRiskDetailWidget />);
     case 'fho_runway_detail':
-      return <FhoRunwayDetailWidget />;
+      return tri('fho_runway_detail', <FhoRunwayDetailWidget />);
     case 'fho_iolta_trust_detail':
-      return <FhoIoltaTrustDetailWidget />;
+      return tri('fho_iolta_trust_detail', <FhoIoltaTrustDetailWidget />);
     case 'fho_unbilled_detail':
-      return <FhoUnbilledDetailWidget />;
+      return tri('fho_unbilled_detail', <FhoUnbilledDetailWidget />);
     case 'runway': {
       const showRwOverlay = peerBenchmarkEnabled || Boolean(selectedModelId);
       const rwTooltipLabel = (name: string) => {
@@ -634,62 +706,65 @@ function FinanceWidgetBody({
         if (name === 'peerRunway') return 'Peer composite';
         return name;
       };
-      return (
-        <div className="h-full w-full flex flex-col">
-          <div className="flex-1 min-h-[150px] mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                id={`chart-${chartId}`}
-                data={chartData}
-                margin={{ top: 4, right: 4, left: -20, bottom: showRwOverlay ? 4 : 0 }}
-                accessibilityLayer={false}
-              >
-                <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
-                <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} dy={10} />
-                <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} />
-                <Tooltip
-                  key="tooltip"
-                  contentStyle={{ borderRadius: '8px', fontSize: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: number, name: string) => [`${value} months`, rwTooltipLabel(name)]}
-                />
-                {showRwOverlay ? <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} /> : null}
-                <Line
-                  key="line-firm"
-                  name="Your firm"
-                  type="monotone"
-                  dataKey="runway"
-                  stroke="var(--chart-emerald)"
-                  strokeWidth={2}
-                  dot={{ r: 3, strokeWidth: 1.5, fill: '#fff' }}
-                />
-                {selectedModelId ? (
+      return tri(
+        'runway',
+        (
+          <div className="h-full w-full flex flex-col">
+            <div className="flex-1 min-h-[150px] mt-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  id={`chart-${chartId}`}
+                  data={chartData}
+                  margin={{ top: 4, right: 4, left: -20, bottom: showRwOverlay ? 4 : 0 }}
+                  accessibilityLayer={false}
+                >
+                  <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                  <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} dy={10} />
+                  <YAxis key="yaxis" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} />
+                  <Tooltip
+                    key="tooltip"
+                    contentStyle={{ borderRadius: '8px', fontSize: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    formatter={(value: number, name: string) => [`${value} months`, rwTooltipLabel(name)]}
+                  />
+                  {showRwOverlay ? <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} /> : null}
                   <Line
-                    key="line-alt"
-                    name="Scenario (Preview)"
+                    key="line-firm"
+                    name="Your firm"
                     type="monotone"
-                    dataKey="altRunway"
-                    stroke="var(--chart-scenario)"
+                    dataKey="runway"
+                    stroke="var(--chart-emerald)"
                     strokeWidth={2}
-                    strokeDasharray="5 5"
                     dot={{ r: 3, strokeWidth: 1.5, fill: '#fff' }}
                   />
-                ) : null}
-                {peerBenchmarkEnabled ? (
-                  <Line
-                    key="line-peer"
-                    name="Peer composite"
-                    type="monotone"
-                    dataKey="peerRunway"
-                    stroke="var(--chart-peer)"
-                    strokeWidth={1.75}
-                    strokeDasharray="2 4"
-                    dot={{ r: 2.5, strokeWidth: 1.5, fill: '#fff' }}
-                  />
-                ) : null}
-              </LineChart>
-            </ResponsiveContainer>
+                  {selectedModelId ? (
+                    <Line
+                      key="line-alt"
+                      name="Scenario (Preview)"
+                      type="monotone"
+                      dataKey="altRunway"
+                      stroke="var(--chart-scenario)"
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                      dot={{ r: 3, strokeWidth: 1.5, fill: '#fff' }}
+                    />
+                  ) : null}
+                  {peerBenchmarkEnabled ? (
+                    <Line
+                      key="line-peer"
+                      name="Peer composite"
+                      type="monotone"
+                      dataKey="peerRunway"
+                      stroke="var(--chart-peer)"
+                      strokeWidth={1.75}
+                      strokeDasharray="2 4"
+                      dot={{ r: 2.5, strokeWidth: 1.5, fill: '#fff' }}
+                    />
+                  ) : null}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
+        ),
       );
     }
     case 'cash_flow': {
@@ -700,16 +775,18 @@ function FinanceWidgetBody({
         if (name === 'peerCashLine') return 'Peer cash ($)';
         return name;
       };
-      return (
-        <div className="h-full w-full flex flex-col">
-          <div className="flex-1 min-h-[150px] mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                id={`chart-${chartId}`}
-                data={cashFlowComposedData}
-                margin={{ top: 4, right: showCashOverlay ? 8 : 0, left: -20, bottom: showCashOverlay ? 4 : 0 }}
-                accessibilityLayer={false}
-              >
+      return tri(
+        'cash_flow',
+        (
+          <div className="h-full w-full flex flex-col">
+            <div className="flex-1 min-h-[150px] mt-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  id={`chart-${chartId}`}
+                  data={cashFlowComposedData}
+                  margin={{ top: 4, right: showCashOverlay ? 8 : 0, left: -20, bottom: showCashOverlay ? 4 : 0 }}
+                  accessibilityLayer={false}
+                >
                 <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
                 <XAxis key="xaxis" dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} dy={10} />
                 <YAxis
@@ -781,14 +858,17 @@ function FinanceWidgetBody({
                     dot={false}
                   />
                 ) : null}
-              </ComposedChart>
-            </ResponsiveContainer>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
+        ),
       );
     }
     case 'ar_aging':
-      return (
+      return tri(
+        'ar_aging',
+        (
         <div className="h-full w-full flex flex-col items-center justify-center mt-2">
           <div className="w-full h-[140px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -811,9 +891,12 @@ function FinanceWidgetBody({
             ))}
           </div>
         </div>
+        ),
       );
     case 'expense_rep':
-      return (
+      return tri(
+        'expense_rep',
+        (
         <div className="h-full w-full flex flex-col mt-2">
           <div className="w-full h-[140px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -836,9 +919,12 @@ function FinanceWidgetBody({
             ))}
           </div>
         </div>
+        ),
       );
     case 'rev_target':
-      return (
+      return tri(
+        'rev_target',
+        (
         <div className="h-full w-full flex flex-col justify-center items-center mt-2">
           <div className="relative w-full h-[140px] flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
@@ -861,8 +947,25 @@ function FinanceWidgetBody({
             </div>
           </div>
         </div>
+        ),
       );
-    case 'ambient_cfo':
+    case 'ambient_cfo': {
+      const ac = getCatalogWidgetSummary('ambient_cfo', briefingSnapshot, lastStrategicRow);
+      if (reportView === 'summary' && ac) {
+        return <CatalogTriSummaryPanel {...ac} />;
+      }
+      if (reportView === 'full') {
+        return (
+          <div className="w-full min-h-[200px] max-h-[min(70vh,520px)] overflow-y-auto rounded-lg border border-gray-100 bg-white -mx-1 p-2">
+            <ThisWeeksBriefing
+              onTakeAction={onTakeAction}
+              onExploreData={onExploreData}
+              isCompact={false}
+              executedInsightIds={executedBriefingInsightIds}
+            />
+          </div>
+        );
+      }
       return (
         <ThisWeeksBriefing
           onTakeAction={onTakeAction}
@@ -871,12 +974,11 @@ function FinanceWidgetBody({
           executedInsightIds={executedBriefingInsightIds}
         />
       );
+    }
     case 'digital_twin':
-      return (
-        <DigitalTwinWidget
-          displayStrategicData={chartData}
-          onExploreScenario={onDigitalTwinScenario}
-        />
+      return tri(
+        'digital_twin',
+        <DigitalTwinWidget displayStrategicData={chartData} onExploreScenario={onDigitalTwinScenario} />,
       );
     case 'suggested_modelling':
       if (!modellingUi) {
@@ -886,9 +988,11 @@ function FinanceWidgetBody({
           </div>
         );
       }
-      return <SuggestedModellingWidget bridge={modellingUi} />;
+      return tri('suggested_modelling', <SuggestedModellingWidget bridge={modellingUi} />);
     case 'financial_goals':
-      return (
+      return tri(
+        'financial_goals',
+        (
         <div className="h-full w-full flex flex-col mt-1">
           <p className="text-[11px] text-gray-500 mb-3">
             Firm Intelligence filters insights through these firm goals (same as the Financial Goals page).
@@ -939,6 +1043,7 @@ function FinanceWidgetBody({
             })}
           </div>
         </div>
+        ),
       );
     case 'strat_cash': {
       const showStratLegend = peerBenchmarkEnabled || Boolean(selectedModelId);
@@ -948,7 +1053,9 @@ function FinanceWidgetBody({
         if (name === 'peerCash') return 'Peer composite';
         return name;
       };
-      return (
+      return tri(
+        'strat_cash',
+        (
         <div className="w-full mt-2 h-[300px] min-h-[300px]">
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: showStratLegend ? 8 : 0 }} accessibilityLayer={false}>
@@ -1006,6 +1113,7 @@ function FinanceWidgetBody({
             </AreaChart>
           </ResponsiveContainer>
         </div>
+        ),
       );
     }
     case 'strat_burn': {
@@ -1018,7 +1126,9 @@ function FinanceWidgetBody({
         if (name === 'peerBurn') return 'Peer composite';
         return name;
       };
-      return (
+      return tri(
+        'strat_burn',
+        (
         <div className="w-full mt-2 h-[300px] min-h-[300px]">
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: showBurnLegend ? 8 : 0 }} accessibilityLayer={false}>
@@ -1042,6 +1152,7 @@ function FinanceWidgetBody({
             </BarChart>
           </ResponsiveContainer>
         </div>
+        ),
       );
     }
     case 'strat_runway': {
@@ -1052,7 +1163,9 @@ function FinanceWidgetBody({
         if (name === 'peerRunway') return 'Peer composite';
         return name;
       };
-      return (
+      return tri(
+        'strat_runway',
+        (
         <div className="w-full mt-2 h-[300px] min-h-[300px]">
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: showRwLegend ? 8 : 0 }} accessibilityLayer={false}>
@@ -1101,6 +1214,7 @@ function FinanceWidgetBody({
             </LineChart>
           </ResponsiveContainer>
         </div>
+        ),
       );
     }
     case EMBEDDED_REPORT_WIDGET_ID: {
@@ -1165,7 +1279,9 @@ function FinanceWidgetBody({
         goalIdx: Math.round(p.goalPct * 4),
       }));
       const practiceAreasChartH = 200;
-      return (
+      return tri(
+        'practice_areas',
+        (
         <div className="w-full flex flex-col mt-1 shrink-0">
           <p className="text-[10px] text-gray-500 mb-2 shrink-0">
             Revenue ($k) by practice vs firm goal mix (% of revenue plan).
@@ -1189,10 +1305,13 @@ function FinanceWidgetBody({
             </ResponsiveContainer>
           </div>
         </div>
+        ),
       );
     }
     case 'billing_health':
-      return (
+      return tri(
+        'billing_health',
+        (
         <div className="h-full w-full flex flex-col gap-3 mt-1">
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-lg border border-gray-100 bg-gray-50/90 p-2 text-center">
@@ -1226,10 +1345,13 @@ function FinanceWidgetBody({
             </ResponsiveContainer>
           </div>
         </div>
+        ),
       );
     case 'collection_trends': {
       const collectionChartH = 232;
-      return (
+      return tri(
+        'collection_trends',
+        (
         <div className="w-full flex flex-col mt-1 shrink-0">
           <p className="text-[10px] text-gray-500 mb-1 shrink-0">
             Collections ($k) and DSO (days, right axis).
@@ -1249,11 +1371,14 @@ function FinanceWidgetBody({
             </ResponsiveContainer>
           </div>
         </div>
+        ),
       );
     }
     case 'partner_realization': {
       const partnerChartH = 240;
-      return (
+      return tri(
+        'partner_realization',
+        (
         <div className="w-full flex flex-col mt-1 shrink-0">
           <p className="text-[10px] text-gray-500 mb-2 shrink-0">Realization % vs internal target by partner.</p>
           <div className="w-full shrink-0" style={{ height: partnerChartH }}>
@@ -1277,12 +1402,15 @@ function FinanceWidgetBody({
             </ResponsiveContainer>
           </div>
         </div>
+        ),
       );
     }
     case 'revenue_streams_trend': {
       const rsData = briefingSnapshot.revenueStreamsTrend;
       const rsH = 228;
-      return (
+      return tri(
+        'revenue_streams_trend',
+        (
         <div className="w-full flex flex-col mt-1 shrink-0">
           <p className="text-[10px] text-gray-500 mb-2 shrink-0">
             Gross revenue by stream ($k). Reflects executed briefing plans where applicable.
@@ -1335,12 +1463,15 @@ function FinanceWidgetBody({
             </ResponsiveContainer>
           </div>
         </div>
+        ),
       );
     }
     case 'expense_stacked_trend': {
       const exData = briefingSnapshot.expenseStackedTrend;
       const exH = 228;
-      return (
+      return tri(
+        'expense_stacked_trend',
+        (
         <div className="w-full flex flex-col mt-1 shrink-0">
           <p className="text-[10px] text-gray-500 mb-2 shrink-0">
             Operating expense categories ($k) stacked by month—mirrors expense mix on your dashboard.
@@ -1361,6 +1492,7 @@ function FinanceWidgetBody({
             </ResponsiveContainer>
           </div>
         </div>
+        ),
       );
     }
     case 'profitability_margin': {
@@ -1371,7 +1503,9 @@ function FinanceWidgetBody({
           ? Math.round((plData.reduce((s, r) => s + r.operatingMarginPct, 0) / plData.length) * 10) / 10
           : 0;
       const plH = 200;
-      return (
+      return tri(
+        'profitability_margin',
+        (
         <div className="w-full flex flex-col mt-1 gap-3 shrink-0">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div className="rounded-lg border border-gray-100 bg-gray-50/90 px-2.5 py-2">
@@ -1434,6 +1568,7 @@ function FinanceWidgetBody({
             </ResponsiveContainer>
           </div>
         </div>
+        ),
       );
     }
     default:
@@ -1476,7 +1611,6 @@ export const DEFAULT_FP_DEFAULT_SIDEBAR_WIDGETS: FinancePageWidget[] = [
 
 /** Default Financial Health Overview page (first under Finances). */
 export const DEFAULT_FP_FINANCIAL_HEALTH_WIDGETS: FinancePageWidget[] = [
-  { instanceId: 'fho_w_banner', widgetId: 'fho_personalization_banner', layoutSize: 'expanded' },
   { instanceId: 'fho_w_goals', widgetId: 'fho_firm_goals_detail', layoutSize: 'compact' },
   { instanceId: 'fho_w_k1', widgetId: 'fho_operating_cash_detail', layoutSize: 'compact' },
   { instanceId: 'fho_w_k2', widgetId: 'fho_revenue_detail', layoutSize: 'compact' },
@@ -1525,6 +1659,8 @@ type FinancePageWidgetGridProps = {
   modellingUi?: ModellingWidgetUiBridge | null;
   /** Pin / unpin widgets to Dashboard Financial Health (live Finances pages only) */
   pinUi?: FinancePagePinUi | null;
+  /** Footer CTA: navigate / dialog / teammate / briefing (prototype drill-down) */
+  onFinanceWidgetExplore?: (payload: FinanceWidgetExplorePayload) => void;
 };
 
 export function FinancePageWidgetGrid({
@@ -1540,6 +1676,7 @@ export function FinancePageWidgetGrid({
   mainGridColumns = 2,
   modellingUi,
   pinUi,
+  onFinanceWidgetExplore,
 }: FinancePageWidgetGridProps) {
   const hydrated = hydratePlacedWidgets(widgets, reportLibrary);
   const gridCols = mainGridColumns;
@@ -1579,8 +1716,9 @@ export function FinancePageWidgetGrid({
                       instanceId: widget.instanceId,
                       widgetId: widget.id,
                       layoutSize: widget.layoutSize,
+                      reportView: normalizeReportView(widget.reportView),
                       ...(widget.id === EMBEDDED_REPORT_WIDGET_ID && widget.reportName
-                        ? { reportName: widget.reportName, reportView: widget.reportView }
+                        ? { reportName: widget.reportName }
                         : {}),
                     });
                   }
@@ -1617,7 +1755,7 @@ export function FinancePageWidgetGrid({
               <p className="text-xs text-gray-500 mt-0.5">{widget.desc}</p>
             </div>
           )}
-          {widget.id === EMBEDDED_REPORT_WIDGET_ID && onUpdateWidget && (
+          {onUpdateWidget && (
             <ReportViewToolbar
               className="mb-3"
               value={widget.reportView ?? 'chart_compact'}
@@ -1638,6 +1776,30 @@ export function FinancePageWidgetGrid({
               modellingUi={widget.id === 'suggested_modelling' ? modellingUi : undefined}
             />
           </div>
+          {onFinanceWidgetExplore ? (() => {
+            const exploreAction = getFinanceWidgetExploreAction(widget.id, {
+              reportName: widget.reportName,
+            });
+            if (exploreAction.type === 'noop') return null;
+            return (
+              <div className="mt-4 border-t border-border pt-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onFinanceWidgetExplore({
+                      widgetId: widget.id,
+                      reportName: widget.reportName,
+                      fallbackTitle: widget.title,
+                    })
+                  }
+                  className="flex w-full min-h-11 items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm font-semibold text-primary hover:bg-primary/5 transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none"
+                >
+                  <span>{exploreAction.label}</span>
+                  <ChevronRight className="size-4 shrink-0 opacity-70" aria-hidden />
+                </button>
+              </div>
+            );
+          })() : null}
         </div>
         );
       })}
@@ -1657,6 +1819,7 @@ type FinancePageSidebarWidgetStackProps = {
   onDigitalTwinScenario?: (id: DigitalTwinScenarioId) => void;
   modellingUi?: ModellingWidgetUiBridge | null;
   pinUi?: FinancePagePinUi | null;
+  onFinanceWidgetExplore?: (payload: FinanceWidgetExplorePayload) => void;
 };
 
 /** Single-column stack for Finances page right rail */
@@ -1672,6 +1835,7 @@ export function FinancePageSidebarWidgetStack({
   onDigitalTwinScenario,
   modellingUi,
   pinUi,
+  onFinanceWidgetExplore,
 }: FinancePageSidebarWidgetStackProps) {
   const hydrated = hydratePlacedWidgets(widgets, reportLibrary).map((w) => ({
     ...w,
@@ -1711,8 +1875,9 @@ export function FinancePageSidebarWidgetStack({
                       instanceId: widget.instanceId,
                       widgetId: widget.id,
                       layoutSize: widget.layoutSize,
+                      reportView: normalizeReportView(widget.reportView),
                       ...(widget.id === EMBEDDED_REPORT_WIDGET_ID && widget.reportName
-                        ? { reportName: widget.reportName, reportView: widget.reportView }
+                        ? { reportName: widget.reportName }
                         : {}),
                     });
                   }
@@ -1749,7 +1914,7 @@ export function FinancePageSidebarWidgetStack({
               <p className="text-xs text-gray-500 mt-0.5">{widget.desc}</p>
             </div>
           )}
-          {widget.id === EMBEDDED_REPORT_WIDGET_ID && onUpdateWidget && (
+          {onUpdateWidget && (
             <ReportViewToolbar
               className="mb-3"
               value={widget.reportView ?? 'chart_compact'}
@@ -1770,6 +1935,30 @@ export function FinancePageSidebarWidgetStack({
               modellingUi={widget.id === 'suggested_modelling' ? modellingUi : undefined}
             />
           </div>
+          {onFinanceWidgetExplore ? (() => {
+            const exploreAction = getFinanceWidgetExploreAction(widget.id, {
+              reportName: widget.reportName,
+            });
+            if (exploreAction.type === 'noop') return null;
+            return (
+              <div className="mt-4 border-t border-border pt-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onFinanceWidgetExplore({
+                      widgetId: widget.id,
+                      reportName: widget.reportName,
+                      fallbackTitle: widget.title,
+                    })
+                  }
+                  className="flex w-full min-h-11 items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm font-semibold text-primary hover:bg-primary/5 transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none"
+                >
+                  <span>{exploreAction.label}</span>
+                  <ChevronRight className="size-4 shrink-0 opacity-70" aria-hidden />
+                </button>
+              </div>
+            );
+          })() : null}
         </div>
         );
       })}

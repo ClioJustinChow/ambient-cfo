@@ -13,6 +13,7 @@ import {
   Maximize2,
   Minimize2,
   Sparkles,
+  ChevronRight,
 } from 'lucide-react';
 import { Input } from './ui/input';
 import {
@@ -33,8 +34,10 @@ import {
   type ReportWidgetView,
   type MainGridColumns,
   type ModellingWidgetUiBridge,
+  type FinanceWidgetExplorePayload,
   isFinancialHealthOverviewWidgetId,
 } from './financeWidgetCatalog';
+import { getFinanceWidgetExploreAction } from '../data/financeWidgetDrillDown';
 import type { LucideIcon } from 'lucide-react';
 import { FileText } from 'lucide-react';
 import { buildBriefingFinancialSnapshot } from '../data/briefingFinancialImpact';
@@ -84,6 +87,7 @@ type SortableCanvasWidgetProps = {
   onDigitalTwinScenario?: (id: DigitalTwinScenarioId) => void;
   mainGridColumns?: MainGridColumns;
   modellingUi?: ModellingWidgetUiBridge | null;
+  onFinanceWidgetExplore?: (payload: FinanceWidgetExplorePayload) => void;
 };
 
 function SortableCanvasWidget({
@@ -101,6 +105,7 @@ function SortableCanvasWidget({
   onDigitalTwinScenario,
   mainGridColumns = 2,
   modellingUi,
+  onFinanceWidgetExplore,
 }: SortableCanvasWidgetProps) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -223,13 +228,11 @@ function SortableCanvasWidget({
         <p className="text-[11px] text-gray-500 mb-2 -mt-1 pl-7">{widget.desc}</p>
       )}
 
-      {widget.id === EMBEDDED_REPORT_WIDGET_ID && (
-        <ReportViewToolbar
-          className="mb-2"
-          value={widget.reportView ?? 'chart_compact'}
-          onChange={(v) => onReportViewChange(widget.instanceId, v)}
-        />
-      )}
+      <ReportViewToolbar
+        className="mb-2"
+        value={widget.reportView ?? 'chart_compact'}
+        onChange={(v) => onReportViewChange(widget.instanceId, v)}
+      />
 
       <div className="flex-1 text-gray-600 text-sm min-w-0">
         <FinanceWidgetContent
@@ -244,6 +247,30 @@ function SortableCanvasWidget({
           modellingUi={widget.id === 'suggested_modelling' ? modellingUi : undefined}
         />
       </div>
+      {onFinanceWidgetExplore ? (() => {
+        const exploreAction = getFinanceWidgetExploreAction(widget.id, {
+          reportName: widget.reportName,
+        });
+        if (exploreAction.type === 'noop') return null;
+        return (
+          <div className="mt-4 border-t border-gray-200 pt-3 shrink-0">
+            <button
+              type="button"
+              onClick={() =>
+                onFinanceWidgetExplore({
+                  widgetId: widget.id,
+                  reportName: widget.reportName,
+                  fallbackTitle: widget.title,
+                })
+              }
+              className="flex w-full min-h-11 items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm font-semibold text-blue-600 hover:bg-blue-50 transition-colors"
+            >
+              <span>{exploreAction.label}</span>
+              <ChevronRight className="size-4 shrink-0 opacity-70" aria-hidden />
+            </button>
+          </div>
+        );
+      })() : null}
     </div>
   );
 }
@@ -322,6 +349,7 @@ export const DashboardCustomizerContent = ({
   onModellingExplore,
   onModellingOpenCreateModel,
   initialPeerBenchmarkEnabled,
+  onFinanceWidgetExplore,
 }: {
   onClose: () => void;
   onTakeAction?: (insightId: string) => void;
@@ -346,6 +374,7 @@ export const DashboardCustomizerContent = ({
   onModellingExplore: (modelId: string) => void;
   onModellingOpenCreateModel: () => void;
   initialPeerBenchmarkEnabled?: boolean;
+  onFinanceWidgetExplore?: (payload: FinanceWidgetExplorePayload) => void;
 }) => {
   /** Customizer always uses a 2-column main grid (matches live Finances layout). */
   const mainGridColumns: MainGridColumns = 2;
@@ -484,6 +513,7 @@ export const DashboardCustomizerContent = ({
         ...catalogItem,
         instanceId: `w_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         layoutSize,
+        reportView: 'chart_compact',
       };
       if (list === 'main') {
         setCanvasMainWidgets((prev) => [...prev, row]);
@@ -781,6 +811,7 @@ export const DashboardCustomizerContent = ({
                         onDigitalTwinScenario={onDigitalTwinScenario}
                         mainGridColumns={mainGridColumns}
                         modellingUi={modellingUi}
+                        onFinanceWidgetExplore={onFinanceWidgetExplore}
                       />
                     ))}
                   </div>
@@ -826,6 +857,7 @@ export const DashboardCustomizerContent = ({
                           executedBriefingInsightIds={executedBriefingInsightIds}
                           onDigitalTwinScenario={onDigitalTwinScenario}
                           modellingUi={modellingUi}
+                          onFinanceWidgetExplore={onFinanceWidgetExplore}
                         />
                       ))}
                     </div>
@@ -909,6 +941,7 @@ export const DashboardCustomizer = ({
   onModellingExplore,
   onModellingOpenCreateModel,
   initialPeerBenchmarkEnabled,
+  onFinanceWidgetExplore,
 }: {
   onClose: () => void;
   onTakeAction?: (insightId: string) => void;
@@ -934,6 +967,7 @@ export const DashboardCustomizer = ({
   onModellingOpenCreateModel: () => void;
   /** Match live Finances toggle when the customizer opens. */
   initialPeerBenchmarkEnabled?: boolean;
+  onFinanceWidgetExplore?: (payload: FinanceWidgetExplorePayload) => void;
 }) => {
   return (
     <DndProvider backend={HTML5Backend}>
@@ -957,6 +991,7 @@ export const DashboardCustomizer = ({
         onModellingExplore={onModellingExplore}
         onModellingOpenCreateModel={onModellingOpenCreateModel}
         initialPeerBenchmarkEnabled={initialPeerBenchmarkEnabled}
+        onFinanceWidgetExplore={onFinanceWidgetExplore}
       />
     </DndProvider>
   );

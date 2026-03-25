@@ -17,12 +17,15 @@ export const ThisWeeksBriefing = ({
   onExploreData,
   isCompact = false,
   executedInsightIds,
+  maxVisibleInsights,
 }: { 
   onTakeAction?: (insightId: string) => void;
   onExploreData?: (insightId: string) => void;
   isCompact?: boolean;
   /** Insights whose recommended plan was executed — hidden from the list */
   executedInsightIds?: readonly BriefingInsightId[];
+  /** When set, only the first N insights are listed (Summary display mode). */
+  maxVisibleInsights?: number;
 }) => {
   const [expandedId, setExpandedId] = useState<string>(() => BRIEFING_INSIGHT_ITEMS[0]?.id ?? 'insight-4');
 
@@ -31,6 +34,12 @@ export const ThisWeeksBriefing = ({
   const visibleInsights = useMemo(
     () => BRIEFING_INSIGHT_ITEMS.filter((i) => !hiddenIds.includes(i.id)),
     [hiddenIds],
+  );
+
+  const displayInsights = useMemo(
+    () =>
+      maxVisibleInsights != null ? visibleInsights.slice(0, maxVisibleInsights) : visibleInsights,
+    [visibleInsights, maxVisibleInsights],
   );
 
   useEffect(() => {
@@ -42,6 +51,13 @@ export const ThisWeeksBriefing = ({
       setExpandedId(visibleInsights[0].id);
     }
   }, [visibleInsights, expandedId]);
+
+  useEffect(() => {
+    if (displayInsights.length === 0) return;
+    if (!displayInsights.some((i) => i.id === expandedId)) {
+      setExpandedId(displayInsights[0].id);
+    }
+  }, [displayInsights, expandedId]);
 
   const titleSize = isCompact ? 'text-[14px]' : 'text-base';
   const subtitleSize = isCompact ? 'text-[13px]' : 'text-sm';
@@ -67,7 +83,7 @@ export const ThisWeeksBriefing = ({
       </div>
       
       <div className="flex flex-col gap-3">
-        {visibleInsights.length === 0 ? (
+        {displayInsights.length === 0 ? (
           <div className="rounded-[8px] border border-emerald-100 bg-emerald-50/60 px-4 py-5 text-center">
             <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 mb-2">
               <CheckCircle2 className="w-5 h-5" strokeWidth={2} />
@@ -78,10 +94,10 @@ export const ThisWeeksBriefing = ({
             </p>
           </div>
         ) : (
-          visibleInsights.map((insight) => {
+          displayInsights.map((insight) => {
             const isExpanded = expandedId === insight.id;
             const Icon = insight.icon;
-            const isFeatured = visibleInsights[0]?.id === insight.id;
+            const isFeatured = displayInsights[0]?.id === insight.id;
 
             return (
               <div 

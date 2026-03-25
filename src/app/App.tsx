@@ -103,6 +103,7 @@ import {
   type PeerBenchmarkPageContext,
 } from './data/peerBenchmarkSeries';
 import { StrategicDashboardChartsProvider } from './context/StrategicDashboardChartsContext';
+import { FhoPersonalizationBanner } from './components/FinancialHealthOverviewWidgets';
 import {
   FIRM_NAME,
   FIRM_ATTORNEY_COUNT,
@@ -1983,6 +1984,11 @@ export default function App() {
                   activeFinancePage.showSidebar ? 'flex-1 order-2 lg:order-1' : 'flex-1'
                 }`}
               >
+                {activePage === FP_FINANCIAL_HEALTH_ID && !isCustomizing ? (
+                  <div className="w-full shrink-0">
+                    <FhoPersonalizationBanner />
+                  </div>
+                ) : null}
                 <FinancePageWidgetGrid
                   widgets={activeFinancePage.widgets}
                   mainGridColumns={activeFinancePage.mainGridColumns}
