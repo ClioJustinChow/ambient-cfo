@@ -308,6 +308,7 @@ export type FinanceCatalogWidgetId = (typeof WIDGET_CATALOG)[number]['id'];
 
 export function defaultLayoutSizeForWidgetId(widgetId: string): WidgetLayoutSize {
   if (
+    widgetId === 'fho_personalization_banner' ||
     widgetId === 'ambient_cfo' ||
     widgetId === 'digital_twin' ||
     widgetId === 'financial_goals' ||
@@ -1475,7 +1476,7 @@ export const DEFAULT_FP_DEFAULT_SIDEBAR_WIDGETS: FinancePageWidget[] = [
 
 /** Default Financial Health Overview page (first under Finances). */
 export const DEFAULT_FP_FINANCIAL_HEALTH_WIDGETS: FinancePageWidget[] = [
-  { instanceId: 'fho_w_banner', widgetId: 'fho_personalization_banner', layoutSize: 'compact' },
+  { instanceId: 'fho_w_banner', widgetId: 'fho_personalization_banner', layoutSize: 'expanded' },
   { instanceId: 'fho_w_goals', widgetId: 'fho_firm_goals_detail', layoutSize: 'compact' },
   { instanceId: 'fho_w_k1', widgetId: 'fho_operating_cash_detail', layoutSize: 'compact' },
   { instanceId: 'fho_w_k2', widgetId: 'fho_revenue_detail', layoutSize: 'compact' },
